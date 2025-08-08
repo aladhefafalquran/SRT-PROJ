@@ -1,0 +1,234 @@
+<!-- templates/translate_srt.html -->
+{% extends "base.html" %}
+
+{% block title %}Translate SRT to Arabic{% endblock %}
+{% block header %}📄 Translate SRT to Arabic{% endblock %}
+
+{% block content %}
+    <div id="error" class="alert alert-error" style="display: none;" role="alert">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        <span id="errorText"></span>
+    </div>
+
+    <div class="form-group">
+        <label for="srtFile">
+            <i class="fas fa-file-alt" aria-hidden="true"></i>
+            Upload SRT File
+        </label>
+        <input type="file" id="srtFile" accept=".srt" required>
+        <div class="file-info">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+            Only .srt files supported
+        </div>
+    </div>
+
+    <button id="translateBtn" class="btn btn-primary">
+        <i class="fas fa-language" aria-hidden="true"></i>
+        Translate to Arabic
+    </button>
+
+    <div id="loading" class="loading" style="display: none;">
+        <div class="loading-text">
+            <i class="fas fa-spinner spinner" aria-hidden="true"></i>
+            <span id="loadingText">Translating...</span>
+        </div>
+        
+        <div class="progress-container">
+            <div class="progress-text" id="progressPercent">0%</div>
+            <div class="progress">
+                <div class="progress-bar" id="progressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div id="statusText" class="pulse">Starting translation...</div>
+
+        <div class="terminal-container">
+            <div class="terminal-header">
+                <i class="fas fa-terminal"></i>
+                Translation Log
+            </div>
+            <div class="terminal-output" id="terminalOutput">Initializing DeepL translation service...
+</div>
+        </div>
+    </div>
+
+    <div id="result" class="result alert alert-success" style="display: none;">
+        <h3>
+            <i class="fas fa-check-circle" aria-hidden="true"></i>
+            Translation Complete!
+        </h3>
+        <a id="downloadLink" class="btn btn-success" download>
+            <i class="fas fa-download" aria-hidden="true"></i>
+            Download Translated SRT
+        </a>
+        <div style="margin-top: var(--spacing-md); color: var(--success-color);">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+            Your translated SRT file is ready! It will be deleted after 1 hour.
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let translationEventSource = null;
+
+    function showError(msg) {
+        const el = document.getElementById('error');
+        document.getElementById('errorText').textContent = msg;
+        el.style.display = 'block';
+        setTimeout(() => el.style.display = 'none', 7000);
+    }
+
+    function updateProgress(percent, text) {
+        percent = Math.max(0, Math.min(100, percent));
+        const bar = document.getElementById('progressBar');
+        const statusText = document.getElementById('statusText');
+        const loadingText = document.getElementById('loadingText');
+        const progressPercent = document.getElementById('progressPercent');
+
+        bar.style.width = `${percent}%`;
+        bar.setAttribute('aria-valuenow', percent);
+        statusText.textContent = text;
+        loadingText.textContent = text;
+        progressPercent.textContent = `${Math.round(percent)}%`;
+    }
+
+    function addTerminalLog(message) {
+        const terminal = document.getElementById('terminalOutput');
+        const timestamp = new Date().toLocaleTimeString();
+        terminal.textContent += `[${timestamp}] ${message}\n`;
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    document.getElementById('translateBtn').addEventListener('click', async () => {
+        const fileInput = document.getElementById('srtFile');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            showError('Please select a file');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('srtFile', file);
+
+        const btn = document.getElementById('translateBtn');
+        const loading = document.getElementById('loading');
+        const result = document.getElementById('result');
+
+        loading.style.display = 'block';
+        result.style.display = 'none';
+        btn.disabled = true;
+
+        // Clear terminal and add initial log
+        document.getElementById('terminalOutput').textContent = '';
+        addTerminalLog('Uploading SRT file...');
+        updateProgress(5, "Uploading...");
+
+        try {
+            const res = await fetch('/translate_srt', { 
+                method: 'POST', 
+                body: formData 
+            });
+            
+            const data = await res.json();
+            
+            if (!res.ok) {
+                throw new Error(data.error || 'Server error');
+            }
+
+            const id = data.translation_id;
+            addTerminalLog('Upload successful. Starting translation...');
+            updateProgress(10, "Starting translation...");
+
+            translationEventSource = new EventSource(`/translation_status/${id}`);
+
+            translationEventSource.onmessage = (e) => {
+                try {
+                    const d = JSON.parse(e.data);
+                    
+                    // Add terminal log for meaningful updates
+                    if (d.message && d.message !== 'Starting translation...') {
+                        addTerminalLog(d.message);
+                    }
+                    
+                    updateProgress(d.progress || 0, d.message || 'Translating...');
+
+                    if (d.status === 'completed') {
+                        translationEventSource.close();
+                        addTerminalLog('✅ Translation completed successfully!');
+                        addTerminalLog(`📁 File ready: ${d.output_filename}`);
+                        
+                        document.getElementById('downloadLink').href = `/download/${d.output_filename}`;
+                        loading.style.display = 'none';
+                        result.style.display = 'block';
+                        btn.disabled = false;
+                        
+                    } else if (d.status === 'error') {
+                        translationEventSource.close();
+                        addTerminalLog(`❌ Translation failed: ${d.message}`);
+                        showError('Translation failed: ' + d.message);
+                        loading.style.display = 'none';
+                        btn.disabled = false;
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing translation progress:", parseError);
+                    addTerminalLog(`⚠️ Parse error: ${parseError.message}`);
+                }
+            };
+
+            translationEventSource.onerror = (error) => {
+                console.error('Translation EventSource error:', error);
+                addTerminalLog('⚠️ Connection lost, attempting to reconnect...');
+                translationEventSource.close();
+                setTimeout(() => {
+                    addTerminalLog('🔄 Checking status via fallback...');
+                    checkTranslationStatusFallback(id);
+                }, 3000);
+            };
+
+        } catch (err) {
+            addTerminalLog(`❌ Upload failed: ${err.message}`);
+            showError('Error: ' + err.message);
+            loading.style.display = 'none';
+            btn.disabled = false;
+        }
+    });
+
+    function checkTranslationStatusFallback(translationId) {
+        fetch(`/translation_status/${translationId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'completed') {
+                    addTerminalLog('✅ Fallback check: Translation completed!');
+                    document.getElementById('downloadLink').href = `/download/${data.output_filename}`;
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('result').style.display = 'block';
+                    document.getElementById('translateBtn').disabled = false;
+                } else if (data.status === 'error') {
+                    addTerminalLog(`❌ Fallback check: Error - ${data.message}`);
+                    showError(data.message);
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('translateBtn').disabled = false;
+                } else {
+                    addTerminalLog('🔄 Still translating, checking again...');
+                    setTimeout(() => checkTranslationStatusFallback(translationId), 3000);
+                }
+            })
+            .catch(err => {
+                addTerminalLog(`⚠️ Fallback check failed: ${err.message}`);
+                setTimeout(() => checkTranslationStatusFallback(translationId), 5000);
+            });
+    }
+
+    // File name display
+    document.getElementById('srtFile').addEventListener('change', function() {
+        const label = this.previousElementSibling;
+        if (this.files.length > 0) {
+            label.innerHTML = '<i class="fas fa-file-alt"></i> ' + this.files[0].name;
+        } else {
+            label.innerHTML = '<i class="fas fa-file-alt"></i> Upload SRT File';
+        }
+    });
+</script>
+{% endblock %}

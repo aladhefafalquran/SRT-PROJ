@@ -1,0 +1,126 @@
+<!-- templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}Merge Subtitles{% endblock %}
+{% block header %}🎬 Video Subtitle Merger{% endblock %}
+
+{% block content %}
+    {% if message %}
+        <div class="alert alert-error">
+            <i class="fas fa-exclamation-triangle"></i>
+            {{ message }}
+        </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('upload_files') }}">
+        <div class="form-group">
+            <label for="videoFile" id="videoLabel">
+                <i class="fas fa-file-video" aria-hidden="true"></i>
+                📹 Select Video File
+            </label>
+            <input type="file" name="videoFile" id="videoFile" accept=".mp4,.mov,.avi,.mkv" required>
+            <div class="file-info">
+                <i class="fas fa-info-circle"></i>
+                Supported: MP4, MOV, AVI, MKV (up to 2GB)
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="subtitleFile" id="subtitleLabel">
+                <i class="fas fa-file-alt" aria-hidden="true"></i>
+                📝 Select Subtitle File
+            </label>
+            <input type="file" name="subtitleFile" id="subtitleFile" accept=".srt,.vtt,.ass" required>
+            <div class="file-info">
+                <i class="fas fa-info-circle"></i>
+                Supported: SRT, VTT, ASS
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-play-circle"></i>
+            🚀 Start Processing
+        </button>
+    </form>
+
+    <div style="margin-top: var(--spacing-xl); padding: var(--spacing-lg); background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: var(--border-radius); border-left: 4px solid var(--info-color);">
+        <h3 style="color: var(--info-color); margin-bottom: var(--spacing-md);">
+            <i class="fas fa-info-circle"></i>
+            How it works:
+        </h3>
+        <div style="color: #6c757d; line-height: 1.6;">
+            <p style="margin-bottom: var(--spacing-sm);">
+                <i class="fas fa-upload" style="color: var(--primary-color);"></i>
+                <strong>1. Upload:</strong> Select your video file and subtitle file
+            </p>
+            <p style="margin-bottom: var(--spacing-sm);">
+                <i class="fas fa-cogs" style="color: var(--secondary-color);"></i>
+                <strong>2. Process:</strong> We'll burn the subtitles directly into your video
+            </p>
+            <p style="margin-bottom: 0;">
+                <i class="fas fa-download" style="color: var(--success-color);"></i>
+                <strong>3. Download:</strong> Get your video with permanent subtitles
+            </p>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Enhanced file selection feedback
+    document.getElementById('videoFile').addEventListener('change', function () {
+        const label = document.getElementById('videoLabel');
+        const fileInfo = this.nextElementSibling;
+        
+        if (this.files.length > 0) {
+            const file = this.files[0];
+            const fileSize = (file.size / (1024 * 1024)).toFixed(1); // Size in MB
+            label.innerHTML = `<i class="fas fa-file-video"></i> 📹 ${file.name}`;
+            fileInfo.innerHTML = `<i class="fas fa-check-circle" style="color: var(--success-color);"></i> Selected: ${fileSize} MB`;
+        } else {
+            label.innerHTML = '<i class="fas fa-file-video"></i> 📹 Select Video File';
+            fileInfo.innerHTML = '<i class="fas fa-info-circle"></i> Supported: MP4, MOV, AVI, MKV (up to 2GB)';
+        }
+    });
+
+    document.getElementById('subtitleFile').addEventListener('change', function () {
+        const label = document.getElementById('subtitleLabel');
+        const fileInfo = this.nextElementSibling;
+        
+        if (this.files.length > 0) {
+            const file = this.files[0];
+            const fileSize = (file.size / 1024).toFixed(1); // Size in KB
+            label.innerHTML = `<i class="fas fa-file-alt"></i> 📝 ${file.name}`;
+            fileInfo.innerHTML = `<i class="fas fa-check-circle" style="color: var(--success-color);"></i> Selected: ${fileSize} KB`;
+        } else {
+            label.innerHTML = '<i class="fas fa-file-alt"></i> 📝 Select Subtitle File';
+            fileInfo.innerHTML = '<i class="fas fa-info-circle"></i> Supported: SRT, VTT, ASS';
+        }
+    });
+
+    // Form validation enhancement
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const videoFile = document.getElementById('videoFile').files[0];
+        const subtitleFile = document.getElementById('subtitleFile').files[0];
+        
+        if (!videoFile || !subtitleFile) {
+            e.preventDefault();
+            alert('Please select both video and subtitle files before proceeding.');
+            return false;
+        }
+        
+        // Check file size (2GB limit)
+        const maxSize = 2 * 1024 * 1024 * 1024; // 2GB in bytes
+        if (videoFile.size > maxSize) {
+            e.preventDefault();
+            alert('Video file is too large. Maximum size is 2GB.');
+            return false;
+        }
+        
+        // Show loading state
+        const submitBtn = this.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+    });
+</script>
+{% endblock %}

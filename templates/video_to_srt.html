@@ -1,0 +1,254 @@
+<!-- templates/video_to_srt.html -->
+{% extends "base.html" %}
+
+{% block title %}Extract SRT from Video{% endblock %}
+{% block header %}🎥 Video to SRT Extractor{% endblock %}
+
+{% block content %}
+    <div id="error" class="alert alert-error" style="display: none;" role="alert">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        <span id="errorText"></span>
+    </div>
+
+    <div class="form-group">
+        <label for="videoFile">
+            <i class="fas fa-file-video" aria-hidden="true"></i>
+            Upload Video File
+        </label>
+        <input type="file" id="videoFile" accept="video/*" required>
+        <div class="file-info">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+            Supports MP4, AVI, MOV, etc.
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="videoModel">
+            <i class="fas fa-brain" aria-hidden="true"></i>
+            Whisper Model
+        </label>
+        <select id="videoModel">
+            <option value="tiny">Tiny (Fastest)</option>
+            <option value="base" selected>Base (Recommended)</option>
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+        </select>
+        <div class="file-info">
+            <i class="fas fa-cog" aria-hidden="true"></i>
+            Larger model = better accuracy, slower
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>
+            <input type="checkbox" id="videoTranslateOption">
+            Translate to Arabic
+        </label>
+    </div>
+
+    <button id="videoConvertBtn" class="btn btn-primary">
+        <i class="fas fa-closed-captioning" aria-hidden="true"></i>
+        Extract SRT from Video
+    </button>
+
+    <div class="loading" id="videoLoading" style="display: none;">
+        <div class="loading-text">
+            <i class="fas fa-spinner spinner" aria-hidden="true"></i>
+            <span id="videoLoadingText">Processing Video...</span>
+        </div>
+        
+        <div class="progress-container">
+            <div class="progress-text" id="videoProgressPercent">0%</div>
+            <div class="progress">
+                <div class="progress-bar" id="videoProgressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div id="videoProgressText" class="pulse">Starting video processing...</div>
+
+        <div class="terminal-container">
+            <div class="terminal-header">
+                <i class="fas fa-terminal"></i>
+                Processing Log
+            </div>
+            <div class="terminal-output" id="videoTerminalOutput">Initializing extraction process...
+</div>
+        </div>
+    </div>
+
+    <div class="result alert alert-success" id="videoResult" style="display: none;">
+        <h3>
+            <i class="fas fa-check-circle" aria-hidden="true"></i>
+            SRT Extraction Complete!
+        </h3>
+        <a href="#" id="downloadVideoSRT" class="btn btn-success" download>
+            <i class="fas fa-download" aria-hidden="true"></i>
+            Download SRT File
+        </a>
+        <div style="margin-top: var(--spacing-md); color: var(--success-color);">
+            <i class="fas fa-info-circle" aria-hidden="true"></i>
+            Your SRT file is ready! It will be deleted after 1 hour.
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let videoEventSource = null;
+
+    function showError(msg) {
+        const el = document.getElementById('error');
+        document.getElementById('errorText').textContent = msg;
+        el.style.display = 'block';
+        setTimeout(() => el.style.display = 'none', 7000);
+    }
+
+    function updateVideoProgress(percent, text) {
+        percent = Math.max(0, Math.min(100, percent));
+        const bar = document.getElementById('videoProgressBar');
+        const progressText = document.getElementById('videoProgressText');
+        const loadingText = document.getElementById('videoLoadingText');
+        const progressPercent = document.getElementById('videoProgressPercent');
+
+        bar.style.width = `${percent}%`;
+        bar.setAttribute('aria-valuenow', percent);
+        progressText.textContent = text;
+        loadingText.textContent = text;
+        progressPercent.textContent = `${Math.round(percent)}%`;
+    }
+
+    function addTerminalLog(message) {
+        const terminal = document.getElementById('videoTerminalOutput');
+        const timestamp = new Date().toLocaleTimeString();
+        terminal.textContent += `[${timestamp}] ${message}\n`;
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    document.getElementById('videoConvertBtn').addEventListener('click', async () => {
+        const file = document.getElementById('videoFile').files[0];
+        const model = document.getElementById('videoModel').value;
+        const translate = document.getElementById('videoTranslateOption').checked;
+
+        if (!file) return showError("Please select a video file.");
+
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('model', model);
+        formData.append('translate', translate);
+
+        const btn = document.getElementById('videoConvertBtn');
+        const loadingDiv = document.getElementById('videoLoading');
+        const resultDiv = document.getElementById('videoResult');
+
+        loadingDiv.style.display = 'block';
+        resultDiv.style.display = 'none';
+        btn.disabled = true;
+        
+        // Clear terminal and add initial log
+        document.getElementById('videoTerminalOutput').textContent = '';
+        addTerminalLog('Starting video upload...');
+        updateVideoProgress(5, "Uploading...");
+
+        try {
+            const response = await fetch('/video_to_srt', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Server error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const conversionId = data.conversion_id;
+
+            addTerminalLog('Upload successful. Starting processing...');
+            updateVideoProgress(10, "Processing started...");
+            
+            videoEventSource = new EventSource(`/video_status/${conversionId}`);
+
+            videoEventSource.onmessage = (event) => {
+                try {
+                    const d = JSON.parse(event.data);
+                    
+                    // Add terminal log for status updates
+                    if (d.message && d.message !== 'Processing...') {
+                        addTerminalLog(d.message);
+                    }
+                    
+                    if (d.status === 'completed') {
+                        videoEventSource.close();
+                        addTerminalLog('✅ Processing completed successfully!');
+                        setTimeout(() => showVideoResults(d), 300);
+                    } else if (d.status === 'error') {
+                        videoEventSource.close();
+                        addTerminalLog(`❌ Error: ${d.message}`);
+                        showError(d.message);
+                        loadingDiv.style.display = 'none';
+                        btn.disabled = false;
+                    } else {
+                        updateVideoProgress(d.progress || 0, d.message || 'Processing...');
+                    }
+                } catch (e) {
+                    console.error("Error parsing progress:", e);
+                    addTerminalLog(`⚠️ Parse error: ${e.message}`);
+                }
+            };
+
+            videoEventSource.onerror = (error) => {
+                console.error('EventSource error:', error);
+                addTerminalLog('⚠️ Connection lost, attempting to reconnect...');
+                videoEventSource.close();
+                setTimeout(() => {
+                    addTerminalLog('🔄 Checking status via fallback...');
+                    checkVideoStatusFallback(conversionId);
+                }, 3000);
+            };
+
+        } catch (error) {
+            addTerminalLog(`❌ Upload failed: ${error.message}`);
+            showError(`Upload failed: ${error.message}`);
+            loadingDiv.style.display = 'none';
+            btn.disabled = false;
+        }
+    });
+
+    function checkVideoStatusFallback(conversionId) {
+        fetch(`/video_status/${conversionId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'completed') {
+                    addTerminalLog('✅ Fallback check: Processing completed!');
+                    showVideoResults(data);
+                } else if (data.status === 'error') {
+                    addTerminalLog(`❌ Fallback check: Error - ${data.message}`);
+                    showError(data.message);
+                    document.getElementById('videoLoading').style.display = 'none';
+                    document.getElementById('videoConvertBtn').disabled = false;
+                } else {
+                    addTerminalLog('🔄 Still processing, checking again...');
+                    setTimeout(() => checkVideoStatusFallback(conversionId), 3000);
+                }
+            })
+            .catch(err => {
+                addTerminalLog(`⚠️ Fallback check failed: ${err.message}`);
+                setTimeout(() => checkVideoStatusFallback(conversionId), 5000);
+            });
+    }
+
+    function showVideoResults(data) {
+        const a = document.getElementById('downloadVideoSRT');
+        a.href = `/download/${data.data.srt_file}`;
+        a.download = data.data.srt_file;
+
+        updateVideoProgress(100, "Complete!");
+        addTerminalLog(`🎉 SRT file ready: ${data.data.srt_file}`);
+        
+        document.getElementById('videoLoading').style.display = 'none';
+        document.getElementById('videoResult').style.display = 'block';
+        document.getElementById('videoConvertBtn').disabled = false;
+    }
+</script>
+{% endblock %}
