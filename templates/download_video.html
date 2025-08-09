@@ -1,0 +1,461 @@
+<!-- templates/download_video.html -->
+{% extends "base.html" %}
+
+{% block title %}Download Online Videos{% endblock %}
+{% block header %}📥 High-Quality Video Downloader{% endblock %}
+
+{% block content %}
+<style>
+    .downloader-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .download-form {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        margin-bottom: 2rem;
+    }
+    
+    .url-input-group {
+        margin-bottom: 1.5rem;
+    }
+    
+    .url-input {
+        width: 100%;
+        padding: 1rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: border-color 0.3s ease;
+    }
+    
+    .url-input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+    }
+    
+    .options-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    
+    .option-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .quality-select {
+        padding: 0.75rem;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 1rem;
+    }
+    
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 1rem;
+    }
+    
+    .supported-sites {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+        color: #666;
+    }
+    
+    .supported-sites h4 {
+        margin: 0 0 0.5rem 0;
+        color: var(--primary-color);
+    }
+    
+    .download-btn {
+        width: 100%;
+        padding: 1rem 2rem;
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .download-btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    
+    .download-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .progress-section {
+        display: none;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        margin-bottom: 2rem;
+    }
+    
+    .progress-header {
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        padding: 1rem;
+        font-weight: 600;
+    }
+    
+    .progress-content {
+        padding: 1.5rem;
+    }
+    
+    .progress-bar-container {
+        background: #f0f0f0;
+        border-radius: 10px;
+        height: 20px;
+        margin: 1rem 0;
+        overflow: hidden;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        width: 0%;
+        transition: width 0.3s ease;
+        border-radius: 10px;
+    }
+    
+    .progress-text {
+        text-align: center;
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 1rem;
+    }
+    
+    .terminal-section {
+        background: #1a202c;
+        color: #00ff41;
+        padding: 1rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        line-height: 1.4;
+        max-height: 200px;
+        overflow-y: auto;
+        border-radius: 6px;
+        margin-top: 1rem;
+    }
+    
+    .result-section {
+        display: none;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        padding: 2rem;
+        text-align: center;
+    }
+    
+    .result-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+    }
+    
+    .download-info {
+        margin: 1rem 0;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        color: #666;
+    }
+    
+    @media (max-width: 768px) {
+        .options-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .downloader-container {
+            padding: 0 1rem;
+        }
+    }
+</style>
+
+<div class="downloader-container">
+    <!-- Main Form -->
+    <div class="download-form">
+        <div class="url-input-group">
+            <label for="videoUrl">
+                <i class="fas fa-link"></i>
+                Video URL
+            </label>
+            <input 
+                type="url" 
+                id="videoUrl" 
+                class="url-input" 
+                placeholder="Paste YouTube, TikTok, Instagram, Twitter/X, or other video URL here..."
+                required
+            >
+        </div>
+        
+        <div class="options-grid">
+            <div class="option-group">
+                <label for="qualitySelect">
+                    <i class="fas fa-video"></i>
+                    Video Quality
+                </label>
+                <select id="qualitySelect" class="quality-select">
+                    <option value="best">Best Available (up to 4K)</option>
+                    <option value="1080p">1080p (Full HD)</option>
+                    <option value="720p">720p (HD)</option>
+                    <option value="480p">480p (SD)</option>
+                </select>
+            </div>
+            
+            <div class="option-group">
+                <label>
+                    <i class="fas fa-music"></i>
+                    Download Options
+                </label>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="audioOnly">
+                    <label for="audioOnly">Audio Only (MP3)</label>
+                </div>
+            </div>
+        </div>
+        
+        <div class="supported-sites">
+            <h4><i class="fas fa-globe"></i> Supported Platforms:</h4>
+            <p>YouTube, TikTok, Instagram, Twitter/X, Facebook, Reddit, Vimeo, Dailymotion, and 1000+ other sites</p>
+        </div>
+        
+        <button id="downloadBtn" class="download-btn">
+            <i class="fas fa-download"></i>
+            Start Download
+        </button>
+    </div>
+
+    <!-- Progress Section -->
+    <div class="progress-section" id="progressSection">
+        <div class="progress-header">
+            <i class="fas fa-download"></i>
+            Downloading Video...
+        </div>
+        <div class="progress-content">
+            <div class="progress-text" id="progressText">0%</div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div id="statusText">Initializing download...</div>
+            
+            <div class="terminal-section" id="terminalOutput">
+Starting download process...
+</div>
+        </div>
+    </div>
+
+    <!-- Result Section -->
+    <div class="result-section" id="resultSection">
+        <div class="result-icon">✅</div>
+        <h3>Download Complete!</h3>
+        <div class="download-info" id="downloadInfo">
+            <!-- File info will be populated here -->
+        </div>
+        <a id="downloadLink" class="btn btn-success" style="text-decoration: none; padding: 1rem 2rem; margin: 1rem;">
+            <i class="fas fa-download"></i>
+            Download File
+        </a>
+        <button onclick="startNewDownload()" class="btn" style="background: #6c757d; color: white; padding: 1rem 2rem; margin: 1rem;">
+            <i class="fas fa-plus"></i>
+            Download Another
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let downloadEventSource = null;
+
+    document.getElementById('downloadBtn').addEventListener('click', startDownload);
+    
+    // Enable/disable quality select based on audio-only option
+    document.getElementById('audioOnly').addEventListener('change', function() {
+        const qualitySelect = document.getElementById('qualitySelect');
+        qualitySelect.disabled = this.checked;
+        if (this.checked) {
+            qualitySelect.style.opacity = '0.5';
+        } else {
+            qualitySelect.style.opacity = '1';
+        }
+    });
+
+    async function startDownload() {
+        const url = document.getElementById('videoUrl').value.trim();
+        const quality = document.getElementById('qualitySelect').value;
+        const audioOnly = document.getElementById('audioOnly').checked;
+        
+        if (!url) {
+            alert('Please enter a video URL');
+            return;
+        }
+        
+        // Basic URL validation
+        try {
+            new URL(url);
+        } catch {
+            alert('Please enter a valid URL');
+            return;
+        }
+        
+        const downloadBtn = document.getElementById('downloadBtn');
+        downloadBtn.disabled = true;
+        downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+        
+        // Show progress section
+        document.getElementById('progressSection').style.display = 'block';
+        document.getElementById('resultSection').style.display = 'none';
+        
+        // Clear terminal
+        document.getElementById('terminalOutput').textContent = 'Starting download process...\n';
+        
+        try {
+            const response = await fetch('/download_online_video', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    url: url,
+                    quality: quality,
+                    audio_only: audioOnly
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                addTerminalLog('✅ Download request accepted');
+                addTerminalLog(`📋 Download ID: ${data.download_id}`);
+                
+                // Start monitoring progress
+                monitorDownload(data.download_id);
+            } else {
+                throw new Error(data.error || 'Failed to start download');
+            }
+            
+        } catch (error) {
+            addTerminalLog(`❌ Error: ${error.message}`);
+            alert('Error: ' + error.message);
+            resetForm();
+        }
+    }
+    
+    function monitorDownload(downloadId) {
+        downloadEventSource = new EventSource(`/download_status/${downloadId}`);
+        
+        downloadEventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                updateProgress(data.progress || 0, data.message || 'Processing...');
+                
+                if (data.message) {
+                    addTerminalLog(data.message);
+                }
+                
+                if (data.status === 'completed') {
+                    downloadEventSource.close();
+                    showSuccess(data);
+                } else if (data.status === 'error') {
+                    downloadEventSource.close();
+                    addTerminalLog(`❌ Download failed: ${data.message}`);
+                    alert('Download failed: ' + data.message);
+                    resetForm();
+                }
+                
+            } catch (e) {
+                addTerminalLog(`⚠️ Parse error: ${e.message}`);
+            }
+        };
+        
+        downloadEventSource.onerror = function(error) {
+            addTerminalLog('⚠️ Connection lost, retrying...');
+            console.error('EventSource error:', error);
+        };
+    }
+    
+    function updateProgress(percent, message) {
+        percent = Math.max(0, Math.min(100, percent));
+        
+        document.getElementById('progressBar').style.width = `${percent}%`;
+        document.getElementById('progressText').textContent = `${Math.round(percent)}%`;
+        document.getElementById('statusText').textContent = message;
+    }
+    
+    function addTerminalLog(message) {
+        const terminal = document.getElementById('terminalOutput');
+        const timestamp = new Date().toLocaleTimeString();
+        terminal.textContent += `[${timestamp}] ${message}\n`;
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+    
+    function showSuccess(data) {
+        document.getElementById('progressSection').style.display = 'none';
+        document.getElementById('resultSection').style.display = 'block';
+        
+        // Populate download info
+        const fileSize = formatFileSize(data.file_size);
+        document.getElementById('downloadInfo').innerHTML = `
+            <strong>File:</strong> ${data.original_name}<br>
+            <strong>Size:</strong> ${fileSize}
+        `;
+        
+        // Set download link
+        document.getElementById('downloadLink').href = `/download/${data.filename}`;
+        document.getElementById('downloadLink').download = data.original_name;
+        
+        addTerminalLog(`🎉 Download completed: ${data.original_name}`);
+        addTerminalLog(`📁 File size: ${fileSize}`);
+    }
+    
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    function resetForm() {
+        const downloadBtn = document.getElementById('downloadBtn');
+        downloadBtn.disabled = false;
+        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Start Download';
+        
+        document.getElementById('progressSection').style.display = 'none';
+        
+        if (downloadEventSource) {
+            downloadEventSource.close();
+        }
+    }
+    
+    function startNewDownload() {
+        document.getElementById('resultSection').style.display = 'none';
+        document.getElementById('videoUrl').value = '';
+        document.getElementById('audioOnly').checked = false;
+        document.getElementById('qualitySelect').value = 'best';
+        resetForm();
+    }
+</script>
+{% endblock %}
