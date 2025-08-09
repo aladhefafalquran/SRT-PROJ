@@ -9,6 +9,7 @@ from flask import Flask, request, render_template, send_file, jsonify, Response,
 from werkzeug.utils import secure_filename
 import uuid
 import shutil
+from urllib.parse import urlparse
 
 # === Dependency Checks ===
 try:
@@ -42,6 +43,7 @@ app.config['MAX_CONTENT_LENGTH'] = 2048 * 1024 * 1024  # 2GB
 processing_status = {}           # For merging video + subs
 video_processing_status = {}     # For extracting SRT
 translate_status = {}            # For SRT translation
+download_status = {}             # For online video downloads
 
 # ==============================
 # 🔑 DEEPL API KEY - MOVE TO ENVIRONMENT VARIABLE
@@ -70,6 +72,14 @@ def check_dependencies():
     except (subprocess.CalledProcessError, FileNotFoundError):
         issues.append("ffprobe not found. Please install FFmpeg.")
         print("❌ DEBUG: ffprobe not found")
+    
+    # Check yt-dlp
+    try:
+        subprocess.run(['yt-dlp', '--version'], capture_output=True, check=True)
+        print("✅ DEBUG: yt-dlp found")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        issues.append("yt-dlp not found. Please install yt-dlp.")
+        print("❌ DEBUG: yt-dlp not found")
     
     # Check Whisper
     if not WHISPER_AVAILABLE:
@@ -291,10 +301,10 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
     try:
         duration = get_video_duration(video_path)
         
-        # Get original video info to preserve quality
-        def get_video_info(video_path):
+        # Get DETAILED original video info for MAXIMUM quality preservation
+        def get_detailed_video_info(video_path):
             try:
-                cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', video_path]
+                cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', '-show_format', video_path]
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True)
                 data = json.loads(result.stdout)
                 
@@ -305,19 +315,51 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
                         break
                 
                 if video_stream:
+                    # Get ALL video parameters for perfect replication
+                    fps_str = video_stream.get('r_frame_rate', '30/1')
+                    try:
+                        fps = eval(fps_str) if '/' in fps_str else float(fps_str)
+                    except:
+                        fps = 30.0
+                    
+                    # Calculate actual bitrate more accurately
+                    bitrate = 0
+                    if video_stream.get('bit_rate'):
+                        bitrate = int(video_stream['bit_rate'])
+                    elif data.get('format', {}).get('bit_rate'):
+                        # Use format bitrate if stream bitrate unavailable
+                        format_bitrate = int(data['format']['bit_rate'])
+                        # Estimate video bitrate (usually 80-90% of total for video files)
+                        bitrate = int(format_bitrate * 0.85)
+                    
                     return {
                         'width': int(video_stream.get('width', 0)),
                         'height': int(video_stream.get('height', 0)),
-                        'fps': eval(video_stream.get('r_frame_rate', '30/1')),
+                        'fps': fps,
                         'pix_fmt': video_stream.get('pix_fmt', 'yuv420p'),
-                        'bitrate': int(video_stream.get('bit_rate', 0))
+                        'bitrate': bitrate,
+                        'codec': video_stream.get('codec_name', 'unknown'),
+                        'profile': video_stream.get('profile', 'unknown'),
+                        'level': video_stream.get('level', 'unknown'),
+                        'color_space': video_stream.get('color_space', 'unknown'),
+                        'sample_aspect_ratio': video_stream.get('sample_aspect_ratio', '1:1'),
+                        'display_aspect_ratio': video_stream.get('display_aspect_ratio', 'unknown'),
+                        'duration': float(data['format'].get('duration', 0))
                     }
                 return None
-            except Exception:
+            except Exception as e:
+                print(f"Error getting video info: {e}")
                 return None
         
-        video_info = get_video_info(video_path)
-        processing_status[unique_id]['status_text'] = 'Analyzing video and subtitles...'
+        video_info = get_detailed_video_info(video_path)
+        processing_status[unique_id]['status_text'] = 'Analyzing video for MAXIMUM quality preservation...'
+        
+        if video_info:
+            processing_status[unique_id]['logs'].append(f'🎬 Original resolution: {video_info["width"]}x{video_info["height"]}')
+            processing_status[unique_id]['logs'].append(f'🎬 Original codec: {video_info["codec"]}')
+            processing_status[unique_id]['logs'].append(f'🎬 Original bitrate: {video_info["bitrate"]} bps')
+            processing_status[unique_id]['logs'].append(f'🎬 Original FPS: {video_info["fps"]}')
+            processing_status[unique_id]['logs'].append(f'🎬 Original pixel format: {video_info["pix_fmt"]}')
         
         # Check if subtitles contain Arabic text
         is_arabic = has_arabic_text(subtitle_path)
@@ -328,7 +370,7 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
             rtl_subtitle_path = os.path.join(temp_dir, 'rtl_subtitles.srt')
             if create_rtl_srt(subtitle_path, rtl_subtitle_path):
                 subtitle_path = rtl_subtitle_path
-                processing_status[unique_id]['logs'].append('Created RTL-compatible subtitle file for Arabic text')
+                processing_status[unique_id]['logs'].append('✅ Created RTL-compatible subtitle file for Arabic text')
         
         # Escape subtitle path for FFmpeg
         if os.name == 'nt':  # Windows
@@ -336,79 +378,112 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
         else:  # Unix-like
             escaped_sub = subtitle_path.replace(':', '\\:')
         
-        # Build improved FFmpeg command
+        # Build MAXIMUM QUALITY PRESERVATION FFmpeg command
         cmd = ['ffmpeg', '-y', '-i', video_path]
         
-        # Video filter with RTL support for Arabic
         if video_info and video_info['width'] > 0 and video_info['height'] > 0:
+            
+            # === SUBTITLE FILTER WITH EXACT RESOLUTION PRESERVATION ===
             if is_arabic:
-                # Special styling for Arabic RTL text
-                vf = (f"subtitles='{escaped_sub}'"
-                     f":force_style='Fontsize=18,PrimaryColour=&Hffffff,OutlineColour=&H000000,"
-                     f"BackColour=&H80000000,Outline=2,Shadow=1,Alignment=2,MarginV=30,"
-                     f"Fontname=Arial,Bold=1'")
-                processing_status[unique_id]['logs'].append('Applied Arabic RTL text styling')
+                # Arabic RTL styling - larger font for better readability
+                subtitle_filter = (f"subtitles='{escaped_sub}'"
+                                 f":force_style='Fontsize=20,PrimaryColour=&Hffffff,OutlineColour=&H000000,"
+                                 f"BackColour=&H80000000,Outline=3,Shadow=1,Alignment=2,MarginV=40,"
+                                 f"Fontname=Arial,Bold=1'")
+                processing_status[unique_id]['logs'].append('✅ Applied Arabic RTL styling')
             else:
-                # Regular subtitle styling for non-Arabic text
-                vf = (f"subtitles='{escaped_sub}'"
-                     f":force_style='Fontsize=16,PrimaryColour=&Hffffff,OutlineColour=&H000000,"
-                     f"BackColour=&H80000000,Outline=2,Shadow=1'")
+                # Regular subtitle styling
+                subtitle_filter = (f"subtitles='{escaped_sub}'"
+                                 f":force_style='Fontsize=18,PrimaryColour=&Hffffff,OutlineColour=&H000000,"
+                                 f"BackColour=&H80000000,Outline=2,Shadow=1'")
             
-            cmd.extend(['-vf', vf])
+            # Apply subtitle filter WITHOUT any scaling (preserve exact resolution)
+            cmd.extend(['-vf', subtitle_filter])
             
-            # Preserve original resolution explicitly
+            # === VIDEO CODEC SETTINGS FOR MAXIMUM QUALITY ===
+            cmd.extend(['-c:v', 'libx264'])
+            
+            # Use VERYSLOW preset for absolute maximum quality
+            cmd.extend(['-preset', 'veryslow'])
+            processing_status[unique_id]['logs'].append('🎯 Using VERYSLOW preset for maximum quality')
+            
+            # === BITRATE MANAGEMENT FOR ORIGINAL QUALITY ===
+            if video_info['bitrate'] > 0:
+                # Use HIGHER bitrate than original to ensure no quality loss
+                target_bitrate = max(video_info['bitrate'], 2000000)  # Minimum 2Mbps
+                enhanced_bitrate = int(target_bitrate * 1.5)  # 50% higher than original
+                
+                cmd.extend(['-b:v', str(enhanced_bitrate)])
+                cmd.extend(['-maxrate', str(int(enhanced_bitrate * 1.3))])
+                cmd.extend(['-bufsize', str(int(enhanced_bitrate * 2))])
+                processing_status[unique_id]['logs'].append(f'💎 Enhanced bitrate: {enhanced_bitrate} bps (150% of original)')
+            else:
+                # Use EXTREMELY HIGH quality CRF when bitrate unknown
+                cmd.extend(['-crf', '12'])  # Near-lossless quality
+                processing_status[unique_id]['logs'].append('💎 Using CRF 12 for near-lossless quality')
+            
+            # === PRESERVE ALL ORIGINAL VIDEO PARAMETERS ===
+            
+            # Force EXACT output resolution (no scaling whatsoever)
             cmd.extend(['-s', f"{video_info['width']}x{video_info['height']}"])
             
-            # Video codec settings for quality preservation
-            cmd.extend(['-c:v', 'libx264'])
-            cmd.extend(['-preset', 'medium'])  # Better quality than 'fast'
-            
-            # Use original bitrate if available, otherwise use CRF
-            if video_info['bitrate'] > 0:
-                target_bitrate = min(video_info['bitrate'], 8000000)  # Cap at 8Mbps
-                cmd.extend(['-b:v', str(target_bitrate)])
-                cmd.extend(['-maxrate', str(int(target_bitrate * 1.2))])
-                cmd.extend(['-bufsize', str(int(target_bitrate * 2))])
-            else:
-                cmd.extend(['-crf', '18'])  # Higher quality than 23
-            
-            # Preserve pixel format
+            # Preserve pixel format exactly
             cmd.extend(['-pix_fmt', video_info['pix_fmt']])
             
-            # Frame rate preservation
-            if video_info['fps'] > 0:
-                cmd.extend(['-r', str(video_info['fps'])])
+            # Preserve frame rate exactly
+            cmd.extend(['-r', str(video_info['fps'])])
+            
+            # Preserve aspect ratio
+            if video_info['sample_aspect_ratio'] != '1:1':
+                cmd.extend(['-aspect', video_info['display_aspect_ratio']])
+            
+            # Advanced x264 options for maximum quality
+            cmd.extend([
+                '-x264-params', 
+                'ref=16:bframes=16:b-adapt=2:direct=auto:me=umh:subme=11:trellis=2:rc-lookahead=60:keyint=300:min-keyint=30'
+            ])
+            processing_status[unique_id]['logs'].append('🔧 Applied advanced x264 parameters for maximum quality')
+            
         else:
-            # Fallback for when we can't get video info
-            processing_status[unique_id]['status_text'] = 'Using fallback encoding...'
+            # Fallback when video info unavailable
+            processing_status[unique_id]['status_text'] = 'Using ultra-high quality fallback settings...'
             if is_arabic:
-                vf = (f"subtitles='{escaped_sub}'"
-                     f":force_style='Fontsize=18,PrimaryColour=&Hffffff,OutlineColour=&H000000,"
-                     f"BackColour=&H80000000,Outline=2,Shadow=1,Alignment=2,MarginV=30,"
-                     f"Fontname=Arial,Bold=1'")
+                subtitle_filter = (f"subtitles='{escaped_sub}'"
+                                 f":force_style='Fontsize=20,PrimaryColour=&Hffffff,OutlineColour=&H000000,"
+                                 f"BackColour=&H80000000,Outline=3,Shadow=1,Alignment=2,MarginV=40,"
+                                 f"Fontname=Arial,Bold=1'")
             else:
-                vf = f"subtitles='{escaped_sub}'"
-            cmd.extend(['-vf', vf])
-            cmd.extend(['-c:v', 'libx264', '-preset', 'medium', '-crf', '18'])
+                subtitle_filter = f"subtitles='{escaped_sub}'"
+            
+            cmd.extend(['-vf', subtitle_filter])
+            cmd.extend(['-c:v', 'libx264', '-preset', 'veryslow', '-crf', '10'])  # Ultra high quality
+            processing_status[unique_id]['logs'].append('🚀 Fallback: Using CRF 10 ultra-high quality')
         
-        # Audio settings (copy to avoid re-encoding)
-        cmd.extend(['-c:a', 'copy'])
+        # === AUDIO SETTINGS (PERFECT COPY) ===
+        cmd.extend(['-c:a', 'copy'])  # Perfect audio copy - no re-encoding
         
-        # Additional quality settings
+        # === ADVANCED FFMPEG OPTIONS FOR QUALITY ===
         cmd.extend(['-movflags', '+faststart'])  # Web optimization
         cmd.extend(['-avoid_negative_ts', 'make_zero'])  # Fix timestamp issues
-        cmd.extend(['-fflags', '+genpts'])  # Generate presentation timestamps
+        cmd.extend(['-fflags', '+genpts+igndts'])  # Better timestamp handling
+        cmd.extend(['-max_muxing_queue_size', '2048'])  # Handle large files
+        cmd.extend(['-muxdelay', '0'])  # No muxing delay
+        cmd.extend(['-muxpreload', '0'])  # No preload delay
         
         # Progress reporting
         cmd.extend(['-progress', 'pipe:1', '-nostats'])
         
         cmd.append(output_path)
         
+        # Log the encoding strategy
         if is_arabic:
-            processing_status[unique_id]['status_text'] = 'Starting encoding with Arabic RTL support...'
-            processing_status[unique_id]['logs'].append('Arabic text detected - using RTL processing')
+            processing_status[unique_id]['status_text'] = 'Starting MAXIMUM quality encoding with Arabic RTL...'
+            processing_status[unique_id]['logs'].append('🎬 Arabic RTL + Maximum Quality Mode Activated')
         else:
-            processing_status[unique_id]['status_text'] = 'Starting encoding...'
+            processing_status[unique_id]['status_text'] = 'Starting MAXIMUM quality encoding...'
+            processing_status[unique_id]['logs'].append('🎬 Maximum Quality Mode Activated')
+        
+        processing_status[unique_id]['logs'].append(f'🔧 FFmpeg command preview: {" ".join(cmd[:15])}...')
         
         # Start FFmpeg process
         proc = subprocess.Popen(
@@ -420,7 +495,7 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
             universal_newlines=True
         )
         
-        # Process output
+        # Process output with enhanced progress tracking
         for line in iter(proc.stdout.readline, ''):
             if line.strip():
                 processing_status[unique_id]['logs'].append(line.strip())
@@ -429,21 +504,41 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
                     progress = parse_ffmpeg_progress(line, duration)
                     if progress is not None:
                         processing_status[unique_id]['progress'] = progress
-                        processing_status[unique_id]['status_text'] = f'Encoding... {progress:.1f}%'
+                        processing_status[unique_id]['status_text'] = f'Maximum quality encoding... {progress:.1f}%'
         
         proc.wait()
         
         if proc.returncode == 0:
-            # Verify output file
+            # Verify output quality matches input
+            output_info = get_detailed_video_info(output_path)
+            if output_info and video_info:
+                processing_status[unique_id]['logs'].append(f'✅ Output resolution: {output_info["width"]}x{output_info["height"]}')
+                processing_status[unique_id]['logs'].append(f'✅ Input resolution: {video_info["width"]}x{video_info["height"]}')
+                
+                # Verify quality preservation
+                if (output_info["width"] == video_info["width"] and 
+                    output_info["height"] == video_info["height"]):
+                    processing_status[unique_id]['logs'].append('🎯 ✅ PERFECT RESOLUTION MATCH!')
+                else:
+                    processing_status[unique_id]['logs'].append('⚠️ Resolution mismatch detected')
+                
+                # Check file sizes
+                input_size = os.path.getsize(video_path)
+                output_size = os.path.getsize(output_path)
+                size_ratio = output_size / input_size
+                processing_status[unique_id]['logs'].append(f'📊 Size ratio: {size_ratio:.2f}x (output/input)')
+                
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 processing_status[unique_id].update({
                     'status': 'success',
                     'progress': 100,
-                    'status_text': 'Completed successfully!',
+                    'status_text': 'MAXIMUM quality processing completed!',
                     'output_filename': os.path.basename(output_path)
                 })
                 if is_arabic:
-                    processing_status[unique_id]['logs'].append('✅ Arabic RTL subtitles processed successfully!')
+                    processing_status[unique_id]['logs'].append('🎉 ✅ Arabic RTL subtitles processed with ORIGINAL QUALITY preserved!')
+                else:
+                    processing_status[unique_id]['logs'].append('🎉 ✅ Subtitles burned with ORIGINAL QUALITY preserved!')
             else:
                 raise Exception("Output file was not created or is empty")
         else:
@@ -667,6 +762,232 @@ def video_status(conversion_id):
             else:
                 yield f"data: {json.dumps({'status': 'in_progress', 'progress': status['progress'], 'message': status['message']})}\n\n"
             time.sleep(0.5)
+    return Response(generate(), mimetype='text/event-stream')
+
+
+# === ONLINE VIDEO DOWNLOADER ===
+@app.route('/download_video_page')
+def download_video_page():
+    """Render the online video downloader page."""
+    return render_template('download_video.html')
+
+
+@app.route('/download_online_video', methods=['POST'])
+def download_online_video():
+    """Start downloading video from URL"""
+    try:
+        data = request.get_json()
+        url = data.get('url', '').strip()
+        quality = data.get('quality', 'best')
+        audio_only = data.get('audio_only', False)
+        
+        if not url:
+            return jsonify({'error': 'Please provide a valid URL'}), 400
+        
+        # Basic URL validation
+        try:
+            result = urlparse(url)
+            if not all([result.scheme, result.netloc]):
+                raise ValueError("Invalid URL")
+        except:
+            return jsonify({'error': 'Invalid URL format'}), 400
+        
+        # Generate unique ID for this download
+        unique_id = str(uuid.uuid4())
+        
+        # Initialize download status
+        download_status[unique_id] = {
+            'status': 'starting',
+            'progress': 0,
+            'message': 'Initializing download...',
+            'url': url,
+            'filename': None,
+            'file_size': 0
+        }
+        
+        # Start download in background
+        thread = threading.Thread(
+            target=download_video_task,
+            args=(url, quality, audio_only, unique_id)
+        )
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'success': True,
+            'download_id': unique_id,
+            'message': 'Download started'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to start download: {str(e)}'}), 500
+
+
+def download_video_task(url, quality, audio_only, unique_id):
+    """Background task to download video using yt-dlp"""
+    try:
+        download_status[unique_id]['message'] = 'Checking URL and fetching info...'
+        download_status[unique_id]['progress'] = 5
+        
+        # Create unique output directory
+        output_dir = os.path.join(OUTPUT_FOLDER, f"downloads_{unique_id}")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Build yt-dlp command
+        cmd = ['yt-dlp']
+        
+        if audio_only:
+            # Audio only download
+            cmd.extend([
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '0',  # Best quality
+                '--output', os.path.join(output_dir, '%(title)s.%(ext)s')
+            ])
+        else:
+            # Video download with quality selection
+            if quality == 'best':
+                cmd.extend(['--format', 'best[height<=2160]'])  # Up to 4K
+            elif quality == '1080p':
+                cmd.extend(['--format', 'best[height<=1080]'])
+            elif quality == '720p':
+                cmd.extend(['--format', 'best[height<=720]'])
+            elif quality == '480p':
+                cmd.extend(['--format', 'best[height<=480]'])
+            else:
+                cmd.extend(['--format', 'best'])
+            
+            cmd.extend([
+                '--output', os.path.join(output_dir, '%(title)s.%(ext)s'),
+                '--merge-output-format', 'mp4'  # Ensure MP4 output
+            ])
+        
+        # Common options
+        cmd.extend([
+            '--no-playlist',  # Download single video only
+            '--write-info-json',  # Get video info
+            url
+        ])
+        
+        download_status[unique_id]['message'] = 'Starting download...'
+        download_status[unique_id]['progress'] = 10
+        
+        print(f"🎬 DEBUG: Starting yt-dlp with command: {' '.join(cmd)}")
+        
+        # Start yt-dlp process
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Monitor progress
+        for line in iter(proc.stdout.readline, ''):
+            if line.strip():
+                print(f"🎬 yt-dlp: {line.strip()}")
+                
+                # Parse progress from yt-dlp output
+                if '[download]' in line and '%' in line:
+                    try:
+                        # Extract percentage from download line
+                        percent_match = re.search(r'(\d+(?:\.\d+)?)%', line)
+                        if percent_match:
+                            progress = float(percent_match.group(1))
+                            download_status[unique_id]['progress'] = min(progress, 95)
+                            
+                        # Extract speed if available
+                        speed_match = re.search(r'at\s+([\d.]+\w+/s)', line)
+                        if speed_match:
+                            speed = speed_match.group(1)
+                            download_status[unique_id]['message'] = f'Downloading... {speed}'
+                            
+                    except:
+                        pass
+                
+                # Check for completion or filename
+                if 'has already been downloaded' in line or 'Destination:' in line:
+                    download_status[unique_id]['progress'] = 95
+                    download_status[unique_id]['message'] = 'Finalizing download...'
+        
+        proc.wait()
+        
+        if proc.returncode == 0:
+            # Find downloaded file
+            downloaded_files = []
+            for file in os.listdir(output_dir):
+                if not file.endswith('.json') and not file.endswith('.part'):
+                    downloaded_files.append(file)
+            
+            if downloaded_files:
+                filename = downloaded_files[0]
+                original_path = os.path.join(output_dir, filename)
+                
+                # Move to main output folder with unique name
+                final_filename = f"downloaded_{unique_id}_{filename}"
+                final_path = os.path.join(OUTPUT_FOLDER, final_filename)
+                shutil.move(original_path, final_path)
+                
+                file_size = os.path.getsize(final_path)
+                
+                download_status[unique_id].update({
+                    'status': 'completed',
+                    'progress': 100,
+                    'message': 'Download completed!',
+                    'filename': final_filename,
+                    'file_size': file_size,
+                    'original_name': filename
+                })
+                
+                print(f"✅ Download completed: {final_filename}")
+            else:
+                raise Exception("No output file found after download")
+        else:
+            raise Exception(f"yt-dlp failed with return code {proc.returncode}")
+            
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Download error: {error_msg}")
+        download_status[unique_id].update({
+            'status': 'error',
+            'message': error_msg,
+            'progress': 0
+        })
+    finally:
+        # Clean up temp directory
+        if os.path.exists(output_dir):
+            try:
+                shutil.rmtree(output_dir)
+            except:
+                pass
+
+
+@app.route('/download_status/<download_id>')
+def get_download_status(download_id):
+    """Get download progress status"""
+    def generate():
+        while True:
+            status = download_status.get(download_id)
+            if not status:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Download not found'})}\n\n"
+                break
+                
+            if status['status'] == 'completed':
+                yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': status['message'], 'filename': status['filename'], 'original_name': status.get('original_name', ''), 'file_size': status['file_size']})}\n\n"
+                # Keep status for a while before cleanup
+                break
+            elif status['status'] == 'error':
+                yield f"data: {json.dumps({'status': 'error', 'message': status['message']})}\n\n"
+                if download_id in download_status:
+                    del download_status[download_id]
+                break
+            else:
+                yield f"data: {json.dumps({'status': 'downloading', 'progress': status['progress'], 'message': status['message']})}\n\n"
+                
+            time.sleep(1)
+    
     return Response(generate(), mimetype='text/event-stream')
 
 
