@@ -372,7 +372,8 @@
             <nav>
                 <a href="{{ url_for('video_to_srt_page') }}" class="{% if request.endpoint == 'video_to_srt_page' %}active{% endif %}">🎥 Extract SRT</a>
                 <a href="{{ url_for('translate_srt_page') }}" class="{% if request.endpoint == 'translate_srt_page' %}active{% endif %}">📄 Translate SRT</a>
-                <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}">🎬 Merge Subtitles</a>
+                <a href="{{ url_for('edit_srt_page') }}" class="{% if request.endpoint == 'edit_srt_page' %}active{% endif %}">📝 Edit SRT</a>
+                <a href="{{ url_for('merge_page') }}" class="{% if request.endpoint == 'merge_page' %}active{% endif %}">🎬 Merge Subtitles</a>
             </nav>
         </header>
         {% block content %}{% endblock %}
