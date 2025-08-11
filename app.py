@@ -874,24 +874,65 @@ def start_video_to_srt():
 @app.route('/video_status/<conversion_id>')
 def video_status(conversion_id):
     def generate():
-        while True:
-            status = video_processing_status.get(conversion_id)
-            if not status:
-                yield f"data: {json.dumps({'status': 'error', 'message': 'Job not found'})}\n\n"
-                break
-            if status['status'] == 'completed':
-                yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': 'Completed!', 'data': {'srt_file': status['srt_file']}})}\n\n"
-                # Clean up status after completion
-                del video_processing_status[conversion_id]
-                break
-            elif status['status'] == 'error':
-                yield f"data: {json.dumps({'status': 'error', 'message': status['message']})}\n\n"
-                del video_processing_status[conversion_id]
-                break
-            else:
-                yield f"data: {json.dumps({'status': 'in_progress', 'progress': status['progress'], 'message': status['message']})}\n\n"
-            time.sleep(0.5)
+        try:
+            while True:
+                status = video_processing_status.get(conversion_id)
+                if not status:
+                    yield f"data: {json.dumps({'status': 'error', 'message': 'Job not found'})}\n\n"
+                    break
+                if status['status'] == 'completed':
+                    yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': 'Completed!', 'data': {'srt_file': status['srt_file']}})}\n\n"
+                    # Clean up status after completion
+                    del video_processing_status[conversion_id]
+                    break
+                elif status['status'] == 'error':
+                    yield f"data: {json.dumps({'status': 'error', 'message': status['message']})}\n\n"
+                    del video_processing_status[conversion_id]
+                    break
+                else:
+                    yield f"data: {json.dumps({'status': 'in_progress', 'progress': status['progress'], 'message': status['message']})}\n\n"
+                time.sleep(0.5)
+        except Exception as e:
+            print(f"❌ ERROR in video_status: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': f'Server error: {str(e)}'})}\n\n"
+    
     return Response(generate(), mimetype='text/event-stream')
+
+
+# Add a fallback JSON endpoint for status checking
+@app.route('/video_status_json/<conversion_id>')
+def video_status_json(conversion_id):
+    """JSON endpoint for fallback status checking"""
+    try:
+        status = video_processing_status.get(conversion_id)
+        if not status:
+            return jsonify({'status': 'error', 'message': 'Job not found'}), 404
+        
+        if status['status'] == 'completed':
+            # Clean up after sending completed status
+            completed_status = status.copy()
+            del video_processing_status[conversion_id]
+            return jsonify({
+                'status': 'completed', 
+                'progress': 100, 
+                'message': 'Completed!', 
+                'data': {'srt_file': completed_status['srt_file']}
+            })
+        elif status['status'] == 'error':
+            # Clean up after sending error status
+            error_message = status['message']
+            del video_processing_status[conversion_id]
+            return jsonify({'status': 'error', 'message': error_message})
+        else:
+            return jsonify({
+                'status': 'in_progress', 
+                'progress': status['progress'], 
+                'message': status['message']
+            })
+            
+    except Exception as e:
+        print(f"❌ ERROR in video_status_json: {e}")
+        return jsonify({'status': 'error', 'message': f'Server error: {str(e)}'}), 500
 
 
 # === ONLINE VIDEO DOWNLOADER ===
