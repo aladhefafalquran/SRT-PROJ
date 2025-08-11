@@ -219,16 +219,9 @@
     // Use the JSON endpoint instead of the SSE endpoint for fallback
     fetch(`/video_status_json/${conversionId}`)
         .then(r => {
-            // Check if response is ok and content-type is JSON
             if (!r.ok) {
                 throw new Error(`HTTP ${r.status}: ${r.statusText}`);
             }
-            
-            const contentType = r.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                throw new Error(`Expected JSON, got ${contentType}`);
-            }
-            
             return r.json();
         })
         .then(data => {
@@ -247,35 +240,9 @@
         })
         .catch(err => {
             addTerminalLog(`⚠️ Fallback check failed: ${err.message}`);
-            
-            // If it's a JSON parse error, the server might be returning HTML error page
-            if (err.message.includes('JSON.parse') || err.message.includes('Expected JSON')) {
-                addTerminalLog('🚨 Server returned HTML instead of JSON - checking server status...');
-                
-                // Try a simple ping to check if server is responding
-                fetch('/video_to_srt_page')
-                    .then(pingResponse => {
-                        if (pingResponse.ok) {
-                            addTerminalLog('✅ Server is responding - retrying in 5 seconds...');
-                            setTimeout(() => checkVideoStatusFallback(conversionId), 5000);
-                        } else {
-                            addTerminalLog('❌ Server issue detected - please refresh page');
-                            showError('Server connection issue. Please refresh the page and try again.');
-                            document.getElementById('videoLoading').style.display = 'none';
-                            document.getElementById('videoConvertBtn').disabled = false;
-                        }
-                    })
-                    .catch(() => {
-                        addTerminalLog('❌ Server unreachable - please check connection');
-                        showError('Cannot reach server. Please check your connection and refresh.');
-                        document.getElementById('videoLoading').style.display = 'none';
-                        document.getElementById('videoConvertBtn').disabled = false;
-                    });
-            } else {
-                // For other errors, retry after longer delay
-                setTimeout(() => checkVideoStatusFallback(conversionId), 5000);
-            }
+            setTimeout(() => checkVideoStatusFallback(conversionId), 5000);
         });
+
 
 }
 

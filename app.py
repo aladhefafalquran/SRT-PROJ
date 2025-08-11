@@ -899,7 +899,7 @@ def video_status(conversion_id):
     return Response(generate(), mimetype='text/event-stream')
 
 
-# Add a fallback JSON endpoint for status checking
+# Add this route to your app.py on VPS
 @app.route('/video_status_json/<conversion_id>')
 def video_status_json(conversion_id):
     """JSON endpoint for fallback status checking"""
