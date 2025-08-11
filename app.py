@@ -742,7 +742,7 @@ def start_video_to_srt():
         return jsonify({'error': 'No video uploaded'}), 400
 
     video = request.files['video']
-    model = request.form.get('model', 'base')
+    model = request.form.get('model', 'small')  # Changed default to 'small'
     translate = request.form.get('translate') == 'true'
 
     if video.filename == '':
@@ -1336,6 +1336,7 @@ def download_file(filename):
         else:
             print(f"📁 DEBUG: Output folder doesn't exist!")
         return jsonify({'error': 'File not found'}), 404
+
 
 
 if __name__ == '__main__':
