@@ -899,7 +899,6 @@ def video_status(conversion_id):
     return Response(generate(), mimetype='text/event-stream')
 
 
-# Add this route to your app.py on VPS
 @app.route('/video_status_json/<conversion_id>')
 def video_status_json(conversion_id):
     """JSON endpoint for fallback status checking"""
@@ -909,7 +908,6 @@ def video_status_json(conversion_id):
             return jsonify({'status': 'error', 'message': 'Job not found'}), 404
         
         if status['status'] == 'completed':
-            # Clean up after sending completed status
             completed_status = status.copy()
             del video_processing_status[conversion_id]
             return jsonify({
@@ -919,7 +917,6 @@ def video_status_json(conversion_id):
                 'data': {'srt_file': completed_status['srt_file']}
             })
         elif status['status'] == 'error':
-            # Clean up after sending error status
             error_message = status['message']
             del video_processing_status[conversion_id]
             return jsonify({'status': 'error', 'message': error_message})

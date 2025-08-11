@@ -29,8 +29,8 @@
         </label>
         <select id="videoModel">
             <option value="tiny">Tiny (Fastest)</option>
-            <option value="base" selected>Base (Recommended)</option>
-            <option value="small">Small</option>
+            <option value="base">Base</option>
+            <option value="small" selected>Small (Recommended)</option>
             <option value="medium">Medium</option>
             <option value="large">Large</option>
         </select>
@@ -38,13 +38,6 @@
             <i class="fas fa-cog" aria-hidden="true"></i>
             Larger model = better accuracy, slower
         </div>
-    </div>
-
-    <div class="form-group">
-        <label>
-            <input type="checkbox" id="videoTranslateOption">
-            Translate to Arabic
-        </label>
     </div>
 
     <button id="videoConvertBtn" class="btn btn-primary">
@@ -128,7 +121,9 @@
     document.getElementById('videoConvertBtn').addEventListener('click', async () => {
         const file = document.getElementById('videoFile').files[0];
         const model = document.getElementById('videoModel').value;
-        const translate = document.getElementById('videoTranslateOption').checked;
+        
+        // Always set translate to false since checkbox is removed
+        const translate = false;
 
         if (!file) return showError("Please select a video file.");
 
@@ -216,35 +211,33 @@
     });
 
     function checkVideoStatusFallback(conversionId) {
-    // Use the JSON endpoint instead of the SSE endpoint for fallback
-    fetch(`/video_status_json/${conversionId}`)
-        .then(r => {
-            if (!r.ok) {
-                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-            }
-            return r.json();
-        })
-        .then(data => {
-            if (data.status === 'completed') {
-                addTerminalLog('✅ Fallback check: Processing completed!');
-                showVideoResults(data);
-            } else if (data.status === 'error') {
-                addTerminalLog(`❌ Fallback check: Error - ${data.message}`);
-                showError(data.message);
-                document.getElementById('videoLoading').style.display = 'none';
-                document.getElementById('videoConvertBtn').disabled = false;
-            } else {
-                addTerminalLog('🔄 Still processing, checking again...');
-                setTimeout(() => checkVideoStatusFallback(conversionId), 3000);
-            }
-        })
-        .catch(err => {
-            addTerminalLog(`⚠️ Fallback check failed: ${err.message}`);
-            setTimeout(() => checkVideoStatusFallback(conversionId), 5000);
-        });
-
-
-}
+        // Use the JSON endpoint instead of the SSE endpoint for fallback
+        fetch(`/video_status_json/${conversionId}`)
+            .then(r => {
+                if (!r.ok) {
+                    throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                }
+                return r.json();
+            })
+            .then(data => {
+                if (data.status === 'completed') {
+                    addTerminalLog('✅ Fallback check: Processing completed!');
+                    showVideoResults(data);
+                } else if (data.status === 'error') {
+                    addTerminalLog(`❌ Fallback check: Error - ${data.message}`);
+                    showError(data.message);
+                    document.getElementById('videoLoading').style.display = 'none';
+                    document.getElementById('videoConvertBtn').disabled = false;
+                } else {
+                    addTerminalLog('🔄 Still processing, checking again...');
+                    setTimeout(() => checkVideoStatusFallback(conversionId), 3000);
+                }
+            })
+            .catch(err => {
+                addTerminalLog(`⚠️ Fallback check failed: ${err.message}`);
+                setTimeout(() => checkVideoStatusFallback(conversionId), 5000);
+            });
+    }
 
     function showVideoResults(data) {
         const a = document.getElementById('downloadVideoSRT');
