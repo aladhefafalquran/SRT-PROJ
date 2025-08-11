@@ -168,6 +168,135 @@ def create_rtl_srt(input_srt, output_srt):
         return False
 
 
+# === ENHANCED RTL FUNCTIONS ===
+def apply_rtl_formatting(text):
+    """Apply RTL formatting to Arabic text automatically"""
+    # Arabic character pattern - comprehensive Unicode ranges for Arabic
+    arabic_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
+    
+    # Check if text contains Arabic characters
+    if arabic_pattern.search(text):
+        # Add RLE (Right-to-Left Embedding) at start and PDF (Pop Directional Formatting) at end
+        return '\u202B' + text.strip() + '\u202C'
+    
+    return text.strip()
+
+
+def enhanced_translate_srt_task(input_path, output_path, unique_id):
+    """Enhanced translation function with automatic RTL formatting"""
+    try:
+        translate_status[unique_id]['message'] = 'Reading SRT file...'
+        translate_status[unique_id]['progress'] = 5
+        
+        with open(input_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+
+        # Parse SRT content into blocks
+        blocks = content.split('\n\n')
+        translated_blocks = []
+        total_blocks = len([b for b in blocks if b.strip()])  # Count non-empty blocks
+        current_block = 0
+        
+        translate_status[unique_id]['message'] = f'Found {total_blocks} subtitle blocks to translate...'
+        translate_status[unique_id]['progress'] = 10
+        
+        for block in blocks:
+            if not block.strip():
+                continue
+                
+            lines = block.strip().split('\n')
+            if len(lines) < 3:
+                # Keep malformed blocks as-is
+                translated_blocks.append(block)
+                current_block += 1
+                continue
+            
+            # Extract sequence number and timing (keep as-is)
+            sequence_line = lines[0]
+            timing_line = lines[1]
+            
+            # Extract text lines for translation
+            text_lines = lines[2:]
+            full_text = ' '.join(text_lines)
+            
+            if full_text.strip():
+                current_block += 1
+                translate_status[unique_id]['message'] = f'Translating subtitle {current_block}/{total_blocks}...'
+                
+                try:
+                    # Call DeepL API
+                    response = requests.post(
+                        DEEPL_API_URL,
+                        data={
+                            "text": full_text,
+                            "target_lang": "AR"
+                        },
+                        headers={"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}"}
+                    )
+                    
+                    if response.status_code != 200:
+                        raise Exception(f"DeepL API error: {response.text}")
+
+                    translated_text = response.json()['translations'][0]['text']
+                    
+                    # Apply RTL formatting automatically to Arabic text
+                    formatted_text = apply_rtl_formatting(translated_text)
+                    
+                    # Rebuild the block
+                    translated_block = f"{sequence_line}\n{timing_line}\n{formatted_text}"
+                    translated_blocks.append(translated_block)
+                    
+                    print(f"✅ Translated block {current_block}: '{full_text[:30]}...' -> '{formatted_text[:30]}...'")
+                    
+                except Exception as e:
+                    print(f"❌ Error translating block {current_block}: {e}")
+                    # Keep original text if translation fails
+                    translated_blocks.append(block)
+            else:
+                # Keep blocks without text as-is
+                translated_blocks.append(block)
+                current_block += 1
+            
+            # Update progress (10% start + 80% for translation + 10% finalization)
+            progress = 10 + int((current_block / total_blocks) * 80)
+            translate_status[unique_id]['progress'] = min(progress, 90)
+
+        # Final processing step
+        translate_status[unique_id]['message'] = 'Finalizing Arabic RTL formatting...'
+        translate_status[unique_id]['progress'] = 95
+        
+        # Join all blocks and write to output
+        final_content = '\n\n'.join(translated_blocks)
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(final_content)
+        
+        # Final verification
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            translate_status[unique_id]['status'] = 'completed'
+            translate_status[unique_id]['progress'] = 100
+            translate_status[unique_id]['message'] = 'Translation completed with automatic RTL formatting!'
+            translate_status[unique_id]['output_filename'] = os.path.basename(output_path)
+            
+            print(f"✅ Translation completed with auto-RTL: {output_path}")
+        else:
+            raise Exception("Output file was not created or is empty")
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Translation error: {error_msg}")
+        translate_status[unique_id]['status'] = 'error'
+        translate_status[unique_id]['message'] = f'Translation failed: {error_msg}'
+    finally:
+        # Clean up input file
+        if os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+                print(f"🧹 Cleaned up input file: {input_path}")
+            except:
+                pass
+
+
 # === SRT Editor Helper Functions ===
 def parse_srt_content(content):
     """Parse SRT content into structured data"""
@@ -998,8 +1127,10 @@ def translate_srt_page():
     return render_template('translate_srt.html')
 
 
+# === ENHANCED TRANSLATION ROUTE ===
 @app.route('/translate_srt', methods=['POST'])
-def translate_srt():
+def translate_srt_enhanced():
+    """Enhanced SRT translation with automatic RTL formatting"""
     if 'srtFile' not in request.files:
         return jsonify({'error': 'No SRT file uploaded'}), 400
 
@@ -1012,87 +1143,34 @@ def translate_srt():
 
     unique_id = str(uuid.uuid4())
     input_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}_input.srt")
-    output_path = os.path.join(OUTPUT_FOLDER, f"translated_{unique_id}.srt")
+    
+    # Update output filename to indicate it includes RTL formatting
+    output_filename = f"translated_arabic_rtl_{unique_id}.srt"
+    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
 
     srt_file.save(input_path)
+    print(f"📁 Saved input file: {input_path}")
 
+    # Initialize status with enhanced messaging
     translate_status[unique_id] = {
         'status': 'translating',
         'progress': 0,
-        'message': 'Starting translation...'
+        'message': 'Starting Arabic translation with automatic RTL formatting...'
     }
 
-    def do_translation():
-        try:
-            with open(input_path, 'r', encoding='utf-8') as f:
-                lines = f.read().strip().split('\n')
-
-            translated_lines = []
-            total_subs = len([l for l in lines if re.match(r'\d+', l)])
-            current = 0
-
-            i = 0
-            while i < len(lines):
-                line = lines[i]
-                translated_lines.append(line)
-                i += 1
-
-                if i < len(lines) and '-->' in lines[i]:
-                    translated_lines.append(lines[i])
-                    i += 1
-                    text_lines = []
-
-                    while i < len(lines) and lines[i].strip() != '':
-                        text_lines.append(lines[i].strip())
-                        i += 1
-
-                    full_text = ' '.join(text_lines)
-                    if full_text:
-                        response = requests.post(
-                            DEEPL_API_URL,
-                            data={
-                                "text": full_text,
-                                "target_lang": "AR"
-                            },
-                            headers={"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}"}
-                        )
-                        if response.status_code != 200:
-                            raise Exception(f"DeepL error: {response.text}")
-
-                        translated = response.json()['translations'][0]['text']
-                        translated_lines.append(translated)
-
-                    current += 1
-                    if total_subs > 0:
-                        translate_status[unique_id]['progress'] = int((current / total_subs) * 100)
-                    translate_status[unique_id]['message'] = f"Translating... {current}/{total_subs}"
-
-                if i < len(lines) and lines[i].strip() == '':
-                    translated_lines.append('')
-                    i += 1
-
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(translated_lines))
-
-            translate_status[unique_id]['status'] = 'completed'
-            translate_status[unique_id]['output_filename'] = f"translated_{unique_id}.srt"
-
-        except Exception as e:
-            translate_status[unique_id]['status'] = 'error'
-            translate_status[unique_id]['message'] = str(e)
-        finally:
-            # Clean up input file
-            if os.path.exists(input_path):
-                try:
-                    os.remove(input_path)
-                except:
-                    pass
-
-    thread = threading.Thread(target=do_translation)
+    # Start translation in background thread
+    thread = threading.Thread(
+        target=enhanced_translate_srt_task,
+        args=(input_path, output_path, unique_id)
+    )
     thread.daemon = True
     thread.start()
 
-    return jsonify({'success': True, 'translation_id': unique_id})
+    return jsonify({
+        'success': True, 
+        'translation_id': unique_id,
+        'message': 'Translation started - RTL formatting will be applied automatically!'
+    })
 
 
 @app.route('/translation_status/<translation_id>')
@@ -1104,7 +1182,7 @@ def translation_status(translation_id):
                 yield f"data: {json.dumps({'status': 'error', 'message': 'Not found'})}\n\n"
                 break
             if status['status'] == 'completed':
-                yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': 'Done!', 'output_filename': status['output_filename']})}\n\n"
+                yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': 'Translation completed with automatic RTL formatting!', 'output_filename': status['output_filename']})}\n\n"
                 del translate_status[translation_id]
                 break
             elif status['status'] == 'error':

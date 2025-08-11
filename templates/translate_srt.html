@@ -2,70 +2,369 @@
 {% extends "base.html" %}
 
 {% block title %}Translate SRT to Arabic{% endblock %}
-{% block header %}📄 Translate SRT to Arabic{% endblock %}
+{% block header %}📄 AI-Powered Arabic Translator{% endblock %}
 
 {% block content %}
-    <div id="error" class="alert alert-error" style="display: none;" role="alert">
+<style>
+    .info-banner {
+        background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+        border: 2px solid #4caf50;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+    
+    .info-banner h3 {
+        color: #2e7d32;
+        margin-bottom: 0.5rem;
+        font-size: 1.2rem;
+    }
+    
+    .info-banner p {
+        color: #388e3c;
+        margin: 0;
+        font-size: 1rem;
+    }
+    
+    .feature-highlight {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(76, 175, 80, 0.1);
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        margin: 0.25rem;
+        font-weight: 600;
+        color: #2e7d32;
+    }
+    
+    .translator-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .upload-section {
+        background: white;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        margin-bottom: 2rem;
+    }
+    
+    .file-upload-area {
+        border: 2px dashed #ddd;
+        border-radius: 8px;
+        padding: 2rem;
+        text-align: center;
+        margin-bottom: 1.5rem;
+        transition: border-color 0.3s ease;
+    }
+    
+    .file-upload-area:hover {
+        border-color: var(--primary-color);
+    }
+    
+    .file-upload-area.file-selected {
+        border-color: var(--success-color);
+        background: rgba(76, 175, 80, 0.05);
+    }
+    
+    .upload-icon {
+        font-size: 3rem;
+        color: #ddd;
+        margin-bottom: 1rem;
+    }
+    
+    .translate-btn {
+        width: 100%;
+        padding: 1rem 2rem;
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .translate-btn:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    
+    .translate-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .loading-section {
+        display: none;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        margin-bottom: 2rem;
+    }
+    
+    .loading-header {
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        padding: 1rem;
+        font-weight: 600;
+        text-align: center;
+    }
+    
+    .loading-content {
+        padding: 1.5rem;
+    }
+    
+    .progress-bar-container {
+        background: #f0f0f0;
+        border-radius: 10px;
+        height: 20px;
+        margin: 1rem 0;
+        overflow: hidden;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        width: 0%;
+        transition: width 0.3s ease;
+        border-radius: 10px;
+    }
+    
+    .progress-text {
+        text-align: center;
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 1rem;
+    }
+    
+    .status-text {
+        text-align: center;
+        margin: 1rem 0;
+        font-weight: 600;
+        color: var(--info-color);
+    }
+    
+    .terminal-section {
+        background: #1a202c;
+        color: #00ff41;
+        padding: 1rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        line-height: 1.4;
+        max-height: 200px;
+        overflow-y: auto;
+        border-radius: 6px;
+        margin-top: 1rem;
+        border: 1px solid #2d3748;
+    }
+    
+    .terminal-section::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .terminal-section::-webkit-scrollbar-track {
+        background: #2d3748;
+    }
+    
+    .terminal-section::-webkit-scrollbar-thumb {
+        background: #4a5568;
+        border-radius: 4px;
+    }
+    
+    .result-section {
+        display: none;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        padding: 2rem;
+        text-align: center;
+    }
+    
+    .result-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        color: var(--success-color);
+    }
+    
+    .result-features {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+        text-align: left;
+    }
+    
+    .result-features h4 {
+        color: #28a745;
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+    }
+    
+    .result-features ul {
+        margin: 0;
+        color: #666;
+        list-style: none;
+        padding-left: 0;
+    }
+    
+    .result-features li {
+        margin-bottom: 0.25rem;
+        padding-left: 1rem;
+        position: relative;
+    }
+    
+    .result-features li::before {
+        content: '✓';
+        position: absolute;
+        left: 0;
+        color: #28a745;
+        font-weight: bold;
+    }
+    
+    .download-btn {
+        background: var(--success-color);
+        color: white;
+        padding: 1rem 2rem;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: 600;
+        display: inline-block;
+        margin: 1rem;
+        transition: all 0.3s ease;
+    }
+    
+    .download-btn:hover {
+        background: #218838;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+    }
+    
+    .error-alert {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        display: none;
+    }
+    
+    @media (max-width: 768px) {
+        .translator-container {
+            padding: 0 1rem;
+        }
+        
+        .feature-highlight {
+            font-size: 0.9rem;
+            padding: 0.4rem 0.8rem;
+        }
+        
+        .upload-section {
+            padding: 1rem;
+        }
+        
+        .file-upload-area {
+            padding: 1rem;
+        }
+        
+        .upload-icon {
+            font-size: 2rem;
+        }
+    }
+</style>
+
+<div class="translator-container">
+    <!-- Info Banner -->
+    <div class="info-banner">
+        <h3>🎯 Smart Arabic Translation with Auto-RTL</h3>
+        <p>Powered by DeepL AI • Automatic right-to-left formatting • Perfect Arabic display</p>
+        <div style="margin-top: 1rem;">
+            <span class="feature-highlight">🤖 AI Translation</span>
+            <span class="feature-highlight">🔀 Auto-RTL</span>
+            <span class="feature-highlight">📱 Perfect Display</span>
+        </div>
+    </div>
+
+    <!-- Error Alert -->
+    <div id="error" class="error-alert" role="alert">
         <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
         <span id="errorText"></span>
     </div>
 
-    <div class="form-group">
-        <label for="srtFile">
-            <i class="fas fa-file-alt" aria-hidden="true"></i>
-            Upload SRT File
-        </label>
-        <input type="file" id="srtFile" accept=".srt" required>
-        <div class="file-info">
-            <i class="fas fa-info-circle" aria-hidden="true"></i>
-            Only .srt files supported
+    <!-- Upload Section -->
+    <div class="upload-section">
+        <div class="file-upload-area" id="uploadArea">
+            <div class="upload-icon">
+                <i class="fas fa-file-alt"></i>
+            </div>
+            <h3>Upload SRT File for Translation</h3>
+            <p style="margin: 1rem 0; color: #666;">
+                Select any language SRT file - it will be translated to Arabic with automatic RTL formatting
+            </p>
+            <input type="file" id="srtFile" accept=".srt" style="display: none;">
+            <button onclick="document.getElementById('srtFile').click()" class="btn" style="background: #6c757d; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 6px; cursor: pointer;">
+                <i class="fas fa-upload"></i> Choose SRT File
+            </button>
+            <div style="margin-top: 1rem; font-size: 0.9rem; color: #999;">
+                Supported: .srt files only
+            </div>
         </div>
+
+        <button id="translateBtn" class="translate-btn" disabled>
+            <i class="fas fa-language" aria-hidden="true"></i>
+            🚀 Translate to Arabic (Auto-RTL)
+        </button>
     </div>
 
-    <button id="translateBtn" class="btn btn-primary">
-        <i class="fas fa-language" aria-hidden="true"></i>
-        Translate to Arabic
-    </button>
-
-    <div id="loading" class="loading" style="display: none;">
-        <div class="loading-text">
-            <i class="fas fa-spinner spinner" aria-hidden="true"></i>
-            <span id="loadingText">Translating...</span>
+    <!-- Loading Section -->
+    <div class="loading-section" id="loading">
+        <div class="loading-header">
+            <i class="fas fa-language"></i>
+            AI Translation in Progress...
         </div>
-        
-        <div class="progress-container">
-            <div class="progress-text" id="progressPercent">0%</div>
-            <div class="progress">
-                <div class="progress-bar" id="progressBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%;"></div>
+        <div class="loading-content">
+            <div class="progress-text" id="progressText">0%</div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
             </div>
-        </div>
-
-        <div id="statusText" class="pulse">Starting translation...</div>
-
-        <div class="terminal-container">
-            <div class="terminal-header">
-                <i class="fas fa-terminal"></i>
-                Translation Log
-            </div>
-            <div class="terminal-output" id="terminalOutput">Initializing DeepL translation service...
+            <div class="status-text" id="statusText">Starting AI translation...</div>
+            
+            <div class="terminal-section" id="terminalOutput">🤖 Initializing DeepL AI translation service...
+🔀 RTL formatting will be applied automatically...
 </div>
         </div>
     </div>
 
-    <div id="result" class="result alert alert-success" style="display: none;">
-        <h3>
-            <i class="fas fa-check-circle" aria-hidden="true"></i>
-            Translation Complete!
-        </h3>
-        <a id="downloadLink" class="btn btn-success" download>
+    <!-- Result Section -->
+    <div class="result-section" id="result">
+        <div class="result-icon">🎉</div>
+        <h3>Translation Complete!</h3>
+        <div class="result-features">
+            <h4>✅ What was applied automatically:</h4>
+            <ul>
+                <li>🤖 AI-powered Arabic translation using DeepL</li>
+                <li>🔀 Automatic RTL (Right-to-Left) formatting</li>
+                <li>📝 Proper Arabic text display optimization</li>
+                <li>⏱️ Original timing preservation</li>
+            </ul>
+        </div>
+        <a id="downloadLink" class="download-btn" download>
             <i class="fas fa-download" aria-hidden="true"></i>
-            Download Translated SRT
+            📥 Download Arabic RTL SRT
         </a>
-        <div style="margin-top: var(--spacing-md); color: var(--success-color);">
+        <div style="margin-top: 1rem; color: var(--success-color);">
             <i class="fas fa-info-circle" aria-hidden="true"></i>
-            Your translated SRT file is ready! It will be deleted after 1 hour.
+            Your Arabic SRT file is ready with perfect RTL formatting! File will be automatically deleted after 1 hour.
         </div>
     </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -83,14 +382,11 @@
         percent = Math.max(0, Math.min(100, percent));
         const bar = document.getElementById('progressBar');
         const statusText = document.getElementById('statusText');
-        const loadingText = document.getElementById('loadingText');
-        const progressPercent = document.getElementById('progressPercent');
+        const progressText = document.getElementById('progressText');
 
         bar.style.width = `${percent}%`;
-        bar.setAttribute('aria-valuenow', percent);
         statusText.textContent = text;
-        loadingText.textContent = text;
-        progressPercent.textContent = `${Math.round(percent)}%`;
+        progressText.textContent = `${Math.round(percent)}%`;
     }
 
     function addTerminalLog(message) {
@@ -100,17 +396,63 @@
         terminal.scrollTop = terminal.scrollHeight;
     }
 
-    document.getElementById('translateBtn').addEventListener('click', async () => {
-        const fileInput = document.getElementById('srtFile');
-        const file = fileInput.files[0];
+    // Store selected file globally
+    let selectedFile = null;
+
+    // File selection handling
+    document.getElementById('srtFile').addEventListener('change', function() {
+        const uploadArea = document.getElementById('uploadArea');
+        const translateBtn = document.getElementById('translateBtn');
         
-        if (!file) {
-            showError('Please select a file');
+        if (this.files.length > 0) {
+            selectedFile = this.files[0]; // Store the file
+            const fileName = selectedFile.name;
+            const fileSize = (selectedFile.size / 1024).toFixed(1);
+            
+            uploadArea.classList.add('file-selected');
+            uploadArea.innerHTML = `
+                <div class="upload-icon" style="color: var(--success-color);">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <h3 style="color: var(--success-color);">File Selected</h3>
+                <p style="margin: 1rem 0; color: #666;">
+                    <strong>${fileName}</strong> (${fileSize} KB)<br>
+                    Ready for Arabic translation with auto-RTL formatting
+                </p>
+                <button onclick="selectNewFile()" class="btn" style="background: #6c757d; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 6px; cursor: pointer;">
+                    <i class="fas fa-exchange-alt"></i> Change File
+                </button>
+            `;
+            
+            translateBtn.disabled = false;
+        } else {
+            selectedFile = null;
+            uploadArea.classList.remove('file-selected');
+            translateBtn.disabled = true;
+        }
+    });
+
+    // Function to select new file
+    function selectNewFile() {
+        const fileInput = document.getElementById('srtFile');
+        if (fileInput) {
+            fileInput.click();
+        }
+    }
+
+    document.getElementById('translateBtn').addEventListener('click', async () => {
+        if (!selectedFile) {
+            showError('Please select an SRT file to translate');
+            return;
+        }
+        
+        if (!selectedFile) {
+            showError('Please select an SRT file to translate');
             return;
         }
 
         const formData = new FormData();
-        formData.append('srtFile', file);
+        formData.append('srtFile', selectedFile);
 
         const btn = document.getElementById('translateBtn');
         const loading = document.getElementById('loading');
@@ -120,9 +462,10 @@
         result.style.display = 'none';
         btn.disabled = true;
 
-        // Clear terminal and add initial log
+        // Clear terminal and add initial logs
         document.getElementById('terminalOutput').textContent = '';
-        addTerminalLog('Uploading SRT file...');
+        addTerminalLog('🚀 Starting enhanced Arabic translation...');
+        addTerminalLog('📁 Uploading SRT file...');
         updateProgress(5, "Uploading...");
 
         try {
@@ -138,8 +481,10 @@
             }
 
             const id = data.translation_id;
-            addTerminalLog('Upload successful. Starting translation...');
-            updateProgress(10, "Starting translation...");
+            addTerminalLog('✅ Upload successful - starting AI translation...');
+            addTerminalLog('🤖 DeepL AI service initialized');
+            addTerminalLog('🔀 Auto-RTL formatting enabled');
+            updateProgress(10, "Starting AI translation...");
 
             translationEventSource = new EventSource(`/translation_status/${id}`);
 
@@ -147,17 +492,18 @@
                 try {
                     const d = JSON.parse(e.data);
                     
-                    // Add terminal log for meaningful updates
-                    if (d.message && d.message !== 'Starting translation...') {
+                    // Add meaningful terminal logs
+                    if (d.message && d.message !== 'Starting AI translation...') {
                         addTerminalLog(d.message);
                     }
                     
-                    updateProgress(d.progress || 0, d.message || 'Translating...');
+                    updateProgress(d.progress || 0, d.message || 'Processing...');
 
                     if (d.status === 'completed') {
                         translationEventSource.close();
-                        addTerminalLog('✅ Translation completed successfully!');
-                        addTerminalLog(`📁 File ready: ${d.output_filename}`);
+                        addTerminalLog('✅ AI translation completed successfully!');
+                        addTerminalLog('🔀 RTL formatting automatically applied!');
+                        addTerminalLog(`📁 Ready: ${d.output_filename}`);
                         
                         document.getElementById('downloadLink').href = `/download/${d.output_filename}`;
                         loading.style.display = 'none';
@@ -170,6 +516,56 @@
                         showError('Translation failed: ' + d.message);
                         loading.style.display = 'none';
                         btn.disabled = false;
+                        
+                        // Reset file selection
+                        selectedFile = null;
+                        document.getElementById('srtFile').value = '';
+                        document.getElementById('uploadArea').classList.remove('file-selected');
+                        document.getElementById('uploadArea').innerHTML = `
+                            <div class="upload-icon">
+                                <i class="fas fa-file-alt"></i>
+                            </div>
+                            <h3>Upload SRT File for Translation</h3>
+                            <p style="margin: 1rem 0; color: #666;">
+                                Select any language SRT file - it will be translated to Arabic with automatic RTL formatting
+                            </p>
+                            <input type="file" id="srtFile" accept=".srt" style="display: none;">
+                            <button onclick="document.getElementById('srtFile').click()" class="btn" style="background: #6c757d; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 6px; cursor: pointer;">
+                                <i class="fas fa-upload"></i> Choose SRT File
+                            </button>
+                            <div style="margin-top: 1rem; font-size: 0.9rem; color: #999;">
+                                Supported: .srt files only
+                            </div>
+                        `;
+                        
+                        // Re-attach event listener to new file input
+                        document.getElementById('srtFile').addEventListener('change', function() {
+                            const uploadArea = document.getElementById('uploadArea');
+                            const translateBtn = document.getElementById('translateBtn');
+                            
+                            if (this.files.length > 0) {
+                                selectedFile = this.files[0];
+                                const fileName = selectedFile.name;
+                                const fileSize = (selectedFile.size / 1024).toFixed(1);
+                                
+                                uploadArea.classList.add('file-selected');
+                                uploadArea.innerHTML = `
+                                    <div class="upload-icon" style="color: var(--success-color);">
+                                        <i class="fas fa-check-circle"></i>
+                                    </div>
+                                    <h3 style="color: var(--success-color);">File Selected</h3>
+                                    <p style="margin: 1rem 0; color: #666;">
+                                        <strong>${fileName}</strong> (${fileSize} KB)<br>
+                                        Ready for Arabic translation with auto-RTL formatting
+                                    </p>
+                                    <button onclick="selectNewFile()" class="btn" style="background: #6c757d; color: white; padding: 0.75rem 1.5rem; border: none; border-radius: 6px; cursor: pointer;">
+                                        <i class="fas fa-exchange-alt"></i> Change File
+                                    </button>
+                                `;
+                                
+                                translateBtn.disabled = false;
+                            }
+                        });
                     }
                 } catch (parseError) {
                     console.error("Error parsing translation progress:", parseError);
@@ -201,6 +597,7 @@
             .then(data => {
                 if (data.status === 'completed') {
                     addTerminalLog('✅ Fallback check: Translation completed!');
+                    addTerminalLog('🔀 Auto-RTL formatting was applied!');
                     document.getElementById('downloadLink').href = `/download/${data.output_filename}`;
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('result').style.display = 'block';
@@ -220,15 +617,5 @@
                 setTimeout(() => checkTranslationStatusFallback(translationId), 5000);
             });
     }
-
-    // File name display
-    document.getElementById('srtFile').addEventListener('change', function() {
-        const label = this.previousElementSibling;
-        if (this.files.length > 0) {
-            label.innerHTML = '<i class="fas fa-file-alt"></i> ' + this.files[0].name;
-        } else {
-            label.innerHTML = '<i class="fas fa-file-alt"></i> Upload SRT File';
-        }
-    });
 </script>
 {% endblock %}
