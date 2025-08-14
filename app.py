@@ -52,6 +52,136 @@ DEEPL_API_KEY = os.getenv("DEEPL_API_KEY", "6e05e993-b62b-43c5-aaa1-24b25aa8c3ae
 DEEPL_API_URL = "https://api-free.deepl.com/v2/translate"
 # ==============================
 
+# === ENHANCED SRT GENERATION FUNCTIONS ===
+def get_audio_silence_detection(video_path, silence_threshold=-30, min_silence_duration=1.0):
+    """
+    Use FFmpeg to detect silence periods in the audio
+    Returns list of silence periods as (start_time, end_time) tuples
+    """
+    try:
+        cmd = [
+            'ffmpeg', '-i', video_path,
+            '-af', f'silencedetect=noise={silence_threshold}dB:d={min_silence_duration}',
+            '-f', 'null', '-'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, stderr=subprocess.STDOUT)
+        output = result.stderr
+        
+        silence_periods = []
+        silence_start = None
+        
+        for line in output.split('\n'):
+            if 'silence_start:' in line:
+                match = re.search(r'silence_start: ([\d.]+)', line)
+                if match:
+                    silence_start = float(match.group(1))
+            elif 'silence_end:' in line and silence_start is not None:
+                match = re.search(r'silence_end: ([\d.]+)', line)
+                if match:
+                    silence_end = float(match.group(1))
+                    silence_periods.append((silence_start, silence_end))
+                    silence_start = None
+        
+        return silence_periods
+    except Exception as e:
+        print(f"Warning: Could not detect silence periods: {e}")
+        return []
+
+def split_long_text(text, max_chars=80, max_words=15):
+    """
+    Split long text into smaller chunks at natural break points
+    """
+    if len(text) <= max_chars and len(text.split()) <= max_words:
+        return [text]
+    
+    # Split at sentence boundaries first
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    if len(sentences) > 1:
+        return [s.strip() for s in sentences if s.strip()]
+    
+    # Split at clause boundaries (commas, semicolons)
+    clauses = re.split(r'(?<=[,;])\s+', text.strip())
+    if len(clauses) > 1:
+        chunks = []
+        current_chunk = ""
+        
+        for clause in clauses:
+            if len(current_chunk + " " + clause) <= max_chars:
+                if current_chunk:
+                    current_chunk += " " + clause
+                else:
+                    current_chunk = clause
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = clause
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return [c for c in chunks if c.strip()]
+    
+    # Split at word boundaries if still too long
+    words = text.split()
+    if len(words) > max_words:
+        chunks = []
+        for i in range(0, len(words), max_words):
+            chunk = " ".join(words[i:i + max_words])
+            chunks.append(chunk)
+        return chunks
+    
+    return [text]
+
+def find_speech_start(segments, silence_threshold=0.5):
+    """
+    Find the actual start of speech, ignoring early silence or noise
+    """
+    if not segments:
+        return 0
+    
+    for segment in segments:
+        # Look for segments with substantial text (not just noise)
+        text = segment.get('text', '').strip()
+        if len(text) > 3 and any(c.isalpha() for c in text):
+            return segment.get('start', 0)
+    
+    return segments[0].get('start', 0) if segments else 0
+
+def remove_segments_in_silence(segments, silence_periods, buffer=0.2):
+    """
+    Remove or adjust segments that fall within detected silence periods
+    """
+    filtered_segments = []
+    
+    for segment in segments:
+        start = segment.get('start', 0)
+        end = segment.get('end', 0)
+        
+        # Check if segment overlaps with any silence period
+        overlaps_silence = False
+        for silence_start, silence_end in silence_periods:
+            # Add buffer to silence periods
+            buffered_silence_start = silence_start + buffer
+            buffered_silence_end = silence_end - buffer
+            
+            # Check if segment is mostly within silence
+            overlap_start = max(start, buffered_silence_start)
+            overlap_end = min(end, buffered_silence_end)
+            
+            if overlap_end > overlap_start:
+                overlap_duration = overlap_end - overlap_start
+                segment_duration = end - start
+                
+                # If more than 70% of segment is in silence, skip it
+                if overlap_duration / segment_duration > 0.7:
+                    overlaps_silence = True
+                    break
+        
+        if not overlaps_silence:
+            filtered_segments.append(segment)
+    
+    return filtered_segments
 
 def check_dependencies():
     """Check if required dependencies are available."""
@@ -90,11 +220,9 @@ def check_dependencies():
     
     return issues
 
-
 # === Helper Functions ===
 def allowed_file(filename, allowed_extensions):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
-
 
 def cleanup_temp_files(temp_dir):
     """Helper function to clean up temporary directories."""
@@ -105,7 +233,6 @@ def cleanup_temp_files(temp_dir):
         except Exception as e:
             print(f"⚠️ DEBUG: Could not clean up {temp_dir}: {e}")
 
-
 def get_video_duration(video_path):
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format', video_path]
@@ -114,7 +241,6 @@ def get_video_duration(video_path):
         return float(data['format']['duration'])
     except Exception:
         return None
-
 
 def parse_ffmpeg_progress(line, total_duration):
     if 'time=' in line:
@@ -125,7 +251,6 @@ def parse_ffmpeg_progress(line, total_duration):
             return min((current / total_duration) * 100, 100)
     return None
 
-
 def format_timestamp(seconds):
     """Convert float seconds to SRT timestamp format: 00:00:01,000"""
     hours = int(seconds // 3600)
@@ -134,7 +259,6 @@ def format_timestamp(seconds):
     milliseconds = int((secs - int(secs)) * 1000)
     seconds = int(secs)
     return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
-
 
 def has_arabic_text(srt_path):
     """Check if SRT file contains Arabic text"""
@@ -145,7 +269,6 @@ def has_arabic_text(srt_path):
         return bool(arabic_pattern.search(content))
     except:
         return False
-
 
 def create_rtl_srt(input_srt, output_srt):
     """Create RTL-compatible SRT file"""
@@ -167,7 +290,6 @@ def create_rtl_srt(input_srt, output_srt):
         print(f"Error creating RTL SRT: {e}")
         return False
 
-
 # === ENHANCED RTL FUNCTIONS ===
 def apply_rtl_formatting(text):
     """Apply RTL formatting to Arabic text automatically"""
@@ -180,7 +302,6 @@ def apply_rtl_formatting(text):
         return '\u202B' + text.strip() + '\u202C'
     
     return text.strip()
-
 
 def enhanced_translate_srt_task(input_path, output_path, unique_id):
     """Enhanced translation function with automatic RTL formatting"""
@@ -296,7 +417,6 @@ def enhanced_translate_srt_task(input_path, output_path, unique_id):
             except:
                 pass
 
-
 # === SRT Editor Helper Functions ===
 def parse_srt_content(content):
     """Parse SRT content into structured data"""
@@ -332,7 +452,6 @@ def parse_srt_content(content):
     
     return subtitles
 
-
 def generate_srt_content(subtitles):
     """Generate SRT content from structured data"""
     srt_lines = []
@@ -354,13 +473,11 @@ def generate_srt_content(subtitles):
     
     return '\n'.join(srt_lines)
 
-
 # === Route: Default Page (Extract SRT) ===
 @app.route('/')
 def index():
     """Redirect to Extract SRT as default page"""
     return redirect(url_for('video_to_srt_page'))
-
 
 # === Route: Merge Page (moved to /merge) ===
 @app.route('/merge')
@@ -374,7 +491,6 @@ def merge_page():
         message = "⚠️ Missing dependencies: " + "; ".join(issues)
     
     return render_template('index.html', message=message)
-
 
 # === Route: Upload & Process Merge ===
 @app.route('/upload', methods=['POST'])
@@ -424,7 +540,6 @@ def upload_files():
     thread.start()
 
     return render_template('processing.html', unique_id=unique_id, output_filename=f"merged_{unique_id}.mp4")
-
 
 def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_dir):
     try:
@@ -683,7 +798,6 @@ def process_video_job(video_path, subtitle_path, output_path, unique_id, temp_di
     finally:
         cleanup_temp_files(temp_dir)
 
-
 @app.route('/stream/<unique_id>')
 def stream_progress(unique_id):
     def generate():
@@ -714,7 +828,6 @@ def stream_progress(unique_id):
             time.sleep(1)
     return Response(generate(), mimetype='text/event-stream')
 
-
 @app.route('/status/<unique_id>')
 def check_status(unique_id):
     status = processing_status.get(unique_id, {'status': 'not_found'})
@@ -725,13 +838,11 @@ def check_status(unique_id):
         return jsonify(copy)
     return jsonify(status)
 
-
 # === VIDEO TO SRT EXTRACTOR ===
 @app.route('/video_to_srt_page')
 def video_to_srt_page():
     """Render the video-to-SRT extractor page."""
     return render_template('video_to_srt.html')
-
 
 @app.route('/video_to_srt', methods=['POST'])
 def start_video_to_srt():
@@ -758,7 +869,7 @@ def start_video_to_srt():
     srt_filename = f"extracted_{unique_id}.srt"
     srt_path = os.path.join(OUTPUT_FOLDER, srt_filename)
 
-    print(f"🎬 DEBUG: Starting video-to-SRT conversion")
+    print(f"🎬 DEBUG: Starting enhanced video-to-SRT conversion")
     print(f"🎬 DEBUG: video_path = {video_path}")
     print(f"🎬 DEBUG: srt_path = {srt_path}")
     print(f"🎬 DEBUG: model = {model}")
@@ -771,8 +882,9 @@ def start_video_to_srt():
         'srt_file': srt_filename
     }
 
-    def background_task():
-        print(f"🎬 DEBUG: Starting background task")
+    def enhanced_background_task():
+        """Enhanced background task with smart SRT generation"""
+        print(f"🎬 DEBUG: Starting enhanced background task")
         print(f"🎬 DEBUG: video_path = {video_path}")
         print(f"🎬 DEBUG: srt_path = {srt_path}")
         print(f"🎬 DEBUG: unique_id = {unique_id}")
@@ -785,91 +897,189 @@ def start_video_to_srt():
             m = whisper.load_model(model)
             print(f"✅ DEBUG: Model loaded successfully")
             
-            video_processing_status[unique_id]['message'] = 'Transcribing audio...'
+            video_processing_status[unique_id]['message'] = 'Analyzing audio with enhanced processing...'
+            video_processing_status[unique_id]['progress'] = 20
+            
+            # Step 1: Detect silence periods using FFmpeg (if available)
+            silence_periods = []
+            try:
+                print(f"🔍 DEBUG: Detecting silence periods...")
+                cmd = [
+                    'ffmpeg', '-i', video_path,
+                    '-af', 'silencedetect=noise=-30dB:d=1.0',
+                    '-f', 'null', '-'
+                ]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, stderr=subprocess.STDOUT)
+                output = result.stderr
+                
+                silence_start = None
+                for line in output.split('\n'):
+                    if 'silence_start:' in line:
+                        match = re.search(r'silence_start: ([\d.]+)', line)
+                        if match:
+                            silence_start = float(match.group(1))
+                    elif 'silence_end:' in line and silence_start is not None:
+                        match = re.search(r'silence_end: ([\d.]+)', line)
+                        if match:
+                            silence_end = float(match.group(1))
+                            silence_periods.append((silence_start, silence_end))
+                            silence_start = None
+                
+                print(f"✅ DEBUG: Found {len(silence_periods)} silence periods")
+            except Exception as e:
+                print(f"⚠️ DEBUG: Could not detect silence: {e}")
+            
+            video_processing_status[unique_id]['message'] = 'Transcribing with smart segmentation...'
             video_processing_status[unique_id]['progress'] = 30
             
-            print(f"🎵 DEBUG: Starting transcription...")
-            result = m.transcribe(video_path, task="translate" if translate else "transcribe")
-            print(f"✅ DEBUG: Transcription completed. Result keys: {list(result.keys())}")
+            # Step 2: Transcribe with enhanced Whisper settings
+            print(f"🎵 DEBUG: Starting enhanced transcription...")
+            result = m.transcribe(
+                video_path, 
+                task="translate" if translate else "transcribe",
+                word_timestamps=True,  # Get word-level timestamps for better segmentation
+                condition_on_previous_text=False,  # Better for files with pauses
+                compression_ratio_threshold=2.4,  # Filter out gibberish
+                logprob_threshold=-1.0,  # Filter out uncertain segments  
+                no_speech_threshold=0.6,  # Better silence detection
+                temperature=0.0  # More deterministic output
+            )
+            print(f"✅ DEBUG: Enhanced transcription completed")
             
-            if 'segments' in result:
-                print(f"✅ DEBUG: Found {len(result['segments'])} segments")
-                # Show first few segments for debugging
-                for i, seg in enumerate(result['segments'][:3]):
-                    print(f"📄 DEBUG: Segment {i}: start={seg.get('start')}, end={seg.get('end')}, text='{seg.get('text', 'NO TEXT')[:50]}...'")
-            else:
-                print(f"❌ DEBUG: No 'segments' key in result. Available keys: {list(result.keys())}")
+            video_processing_status[unique_id]['message'] = 'Processing segments with smart timing...'
+            video_processing_status[unique_id]['progress'] = 70
             
-            video_processing_status[unique_id]['message'] = 'Writing SRT file...'
+            # Step 3: Enhanced segment processing
+            segments = result.get('segments', [])
+            enhanced_segments = []
+            
+            if segments:
+                # Find actual speech start (ignore early silence/noise)
+                speech_start = 0
+                for segment in segments:
+                    text = segment.get('text', '').strip()
+                    if len(text) > 3 and any(c.isalpha() for c in text):
+                        speech_start = segment.get('start', 0)
+                        break
+                
+                print(f"🎯 DEBUG: Detected speech start at {speech_start:.2f}s")
+                
+                for segment in segments:
+                    start = segment.get('start', 0)
+                    end = segment.get('end', 0)
+                    text = segment.get('text', '').strip()
+                    
+                    # Skip segments before actual speech starts
+                    if start < speech_start - 0.5:
+                        continue
+                    
+                    # Skip very short or empty segments
+                    if len(text) < 2 or (end - start) < 0.3:
+                        continue
+                    
+                    # Check if segment overlaps with silence periods
+                    skip_segment = False
+                    for silence_start_time, silence_end_time in silence_periods:
+                        # Add small buffer to silence periods
+                        buffered_start = silence_start_time + 0.2
+                        buffered_end = silence_end_time - 0.2
+                        
+                        # Calculate overlap
+                        overlap_start = max(start, buffered_start)
+                        overlap_end = min(end, buffered_end)
+                        
+                        if overlap_end > overlap_start:
+                            overlap_duration = overlap_end - overlap_start
+                            segment_duration = end - start
+                            
+                            # Skip if more than 70% overlaps with silence
+                            if overlap_duration / segment_duration > 0.7:
+                                skip_segment = True
+                                break
+                    
+                    if skip_segment:
+                        continue
+                    
+                    # Clean up text
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    
+                    # Split long segments at natural breaks
+                    text_chunks = split_long_text(text)
+                    
+                    if len(text_chunks) == 1:
+                        # Single chunk
+                        enhanced_segments.append({
+                            'start': start,
+                            'end': end,
+                            'text': text
+                        })
+                    else:
+                        # Multiple chunks - distribute time evenly
+                        chunk_duration = (end - start) / len(text_chunks)
+                        for i, chunk in enumerate(text_chunks):
+                            chunk_start = start + (i * chunk_duration)
+                            chunk_end = start + ((i + 1) * chunk_duration)
+                            enhanced_segments.append({
+                                'start': chunk_start,
+                                'end': chunk_end,
+                                'text': chunk
+                            })
+            
+            video_processing_status[unique_id]['message'] = 'Writing enhanced SRT file...'
             video_processing_status[unique_id]['progress'] = 90
             
-            print(f"📝 DEBUG: About to write SRT file...")
-            print(f"📁 DEBUG: Output folder exists: {os.path.exists(OUTPUT_FOLDER)}")
-            print(f"📁 DEBUG: Output folder path: {os.path.abspath(OUTPUT_FOLDER)}")
-            print(f"📄 DEBUG: SRT file path: {os.path.abspath(srt_path)}")
+            # Step 4: Write enhanced SRT file
+            print(f"📝 DEBUG: Writing enhanced SRT with {len(enhanced_segments)} segments...")
             
             # Create output folder if it doesn't exist
             os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-            print(f"✅ DEBUG: Output folder created/confirmed")
             
             with open(srt_path, 'w', encoding='utf-8') as f:
-                if 'segments' not in result or len(result['segments']) == 0:
-                    print(f"❌ DEBUG: No segments found in transcription result!")
-                    f.write("1\n00:00:00,000 --> 00:00:05,000\nNo speech detected\n\n")
+                if not enhanced_segments:
+                    f.write("1\n00:00:00,000 --> 00:00:05,000\nNo clear speech detected\n\n")
                 else:
-                    for i, seg in enumerate(result['segments']):
-                        start = format_timestamp(seg['start'])
-                        end = format_timestamp(seg['end'])
-                        text = seg['text'].strip()
+                    for i, segment in enumerate(enhanced_segments):
+                        start_time = format_timestamp(segment['start'])
+                        end_time = format_timestamp(segment['end'])
+                        text = segment['text']
                         
-                        srt_entry = f"{i+1}\n{start} --> {end}\n{text}\n\n"
-                        f.write(srt_entry)
+                        f.write(f"{i+1}\n{start_time} --> {end_time}\n{text}\n\n")
                         
                         if i < 3:  # Debug first 3 entries
-                            print(f"📝 DEBUG: Wrote segment {i+1}: {text[:30]}...")
+                            print(f"📝 DEBUG: Enhanced segment {i+1}: {start_time} --> {end_time}: {text[:30]}...")
             
-            print(f"✅ DEBUG: SRT file writing completed")
+            print(f"✅ DEBUG: Enhanced SRT file written successfully")
             
-            # Verify file was created
+            # Verify file
             if os.path.exists(srt_path):
                 file_size = os.path.getsize(srt_path)
-                print(f"✅ DEBUG: SRT file exists! Size: {file_size} bytes")
+                print(f"✅ DEBUG: Enhanced SRT file exists! Size: {file_size} bytes")
                 
-                # Read back first few lines to verify
-                with open(srt_path, 'r', encoding='utf-8') as f:
-                    first_lines = f.read(200)
-                    print(f"📄 DEBUG: File content preview:\n{first_lines}")
+                video_processing_status[unique_id]['status'] = 'completed'
+                video_processing_status[unique_id]['progress'] = 100
+                video_processing_status[unique_id]['message'] = 'Enhanced SRT completed with smart timing!'
             else:
-                print(f"❌ DEBUG: SRT file was NOT created!")
-            
-            video_processing_status[unique_id]['status'] = 'completed'
-            video_processing_status[unique_id]['progress'] = 100
-            video_processing_status[unique_id]['message'] = 'Completed!'
-            print(f"✅ DEBUG: Background task completed successfully")
-            
+                raise Exception("Enhanced SRT file was not created")
+                
         except Exception as e:
-            print(f"❌ DEBUG: Exception in background_task: {e}")
-            print(f"❌ DEBUG: Exception type: {type(e)}")
+            print(f"❌ DEBUG: Exception in enhanced background_task: {e}")
             import traceback
             traceback.print_exc()
             
             video_processing_status[unique_id]['status'] = 'error'
-            video_processing_status[unique_id]['message'] = str(e)
+            video_processing_status[unique_id]['message'] = f"Enhanced processing failed: {str(e)}"
         finally:
             print(f"🧹 DEBUG: Cleanup - temp_dir = {temp_dir}")
             if os.path.exists(temp_dir):
-                print(f"🧹 DEBUG: Temp dir exists, cleaning up...")
                 cleanup_temp_files(temp_dir)
-            else:
-                print(f"🧹 DEBUG: Temp dir doesn't exist, nothing to clean")
-            print(f"✅ DEBUG: Background task finished")
+            print(f"✅ DEBUG: Enhanced background task finished")
 
-    thread = threading.Thread(target=background_task)
+    thread = threading.Thread(target=enhanced_background_task)
     thread.daemon = True
     thread.start()
 
     return jsonify({'success': True, 'conversion_id': unique_id})
-
 
 @app.route('/video_status/<conversion_id>')
 def video_status(conversion_id):
@@ -881,7 +1091,7 @@ def video_status(conversion_id):
                     yield f"data: {json.dumps({'status': 'error', 'message': 'Job not found'})}\n\n"
                     break
                 if status['status'] == 'completed':
-                    yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': 'Completed!', 'data': {'srt_file': status['srt_file']}})}\n\n"
+                    yield f"data: {json.dumps({'status': 'completed', 'progress': 100, 'message': 'Enhanced SRT completed!', 'data': {'srt_file': status['srt_file']}})}\n\n"
                     # Clean up status after completion
                     del video_processing_status[conversion_id]
                     break
@@ -898,7 +1108,6 @@ def video_status(conversion_id):
     
     return Response(generate(), mimetype='text/event-stream')
 
-
 @app.route('/video_status_json/<conversion_id>')
 def video_status_json(conversion_id):
     """JSON endpoint for fallback status checking"""
@@ -913,7 +1122,7 @@ def video_status_json(conversion_id):
             return jsonify({
                 'status': 'completed', 
                 'progress': 100, 
-                'message': 'Completed!', 
+                'message': 'Enhanced SRT completed!', 
                 'data': {'srt_file': completed_status['srt_file']}
             })
         elif status['status'] == 'error':
@@ -931,13 +1140,11 @@ def video_status_json(conversion_id):
         print(f"❌ ERROR in video_status_json: {e}")
         return jsonify({'status': 'error', 'message': f'Server error: {str(e)}'}), 500
 
-
 # === ONLINE VIDEO DOWNLOADER ===
 @app.route('/download_video_page')
 def download_video_page():
     """Render the online video downloader page."""
     return render_template('download_video.html')
-
 
 @app.route('/download_online_video', methods=['POST'])
 def download_online_video():
@@ -988,7 +1195,6 @@ def download_online_video():
         
     except Exception as e:
         return jsonify({'error': f'Failed to start download: {str(e)}'}), 500
-
 
 def download_video_task(url, quality, audio_only, unique_id):
     """Background task to download video using yt-dlp"""
@@ -1130,7 +1336,6 @@ def download_video_task(url, quality, audio_only, unique_id):
             except:
                 pass
 
-
 @app.route('/download_status/<download_id>')
 def get_download_status(download_id):
     """Get download progress status"""
@@ -1157,13 +1362,11 @@ def get_download_status(download_id):
     
     return Response(generate(), mimetype='text/event-stream')
 
-
 # === SRT TO ARABIC TRANSLATOR ===
 @app.route('/translate_srt_page')
 def translate_srt_page():
     """Render the SRT translation page."""
     return render_template('translate_srt.html')
-
 
 # === ENHANCED TRANSLATION ROUTE ===
 @app.route('/translate_srt', methods=['POST'])
@@ -1210,7 +1413,6 @@ def translate_srt_enhanced():
         'message': 'Translation started - RTL formatting will be applied automatically!'
     })
 
-
 @app.route('/translation_status/<translation_id>')
 def translation_status(translation_id):
     def generate():
@@ -1232,13 +1434,11 @@ def translation_status(translation_id):
             time.sleep(0.5)
     return Response(generate(), mimetype='text/event-stream')
 
-
 # === NEW SRT EDITOR ROUTES ===
 @app.route('/edit_srt_page')
 def edit_srt_page():
     """Render the SRT editor page"""
     return render_template('edit_srt.html')
-
 
 @app.route('/parse_srt', methods=['POST'])
 def parse_srt():
@@ -1267,7 +1467,6 @@ def parse_srt():
         
     except Exception as e:
         return jsonify({'error': f'Failed to parse SRT: {str(e)}'}), 400
-
 
 @app.route('/save_srt', methods=['POST'])
 def save_srt():
@@ -1302,11 +1501,10 @@ def save_srt():
     except Exception as e:
         return jsonify({'error': f'Failed to save SRT: {str(e)}'}), 500
 
-
 # === DOWNLOAD ROUTE WITH DEBUG ===
 @app.route('/download/<filename>')
 def download_file(filename):
-    print(f"🔍 DEBUG: Download requested: {filename}")
+    print(f"📁 DEBUG: Download requested: {filename}")
     print(f"📁 DEBUG: Output folder: {app.config['OUTPUT_FOLDER']}")
     print(f"📁 DEBUG: Current working dir: {os.getcwd()}")
     
@@ -1318,7 +1516,7 @@ def download_file(filename):
     path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
     abs_path = os.path.abspath(path)
     
-    print(f"🔍 DEBUG: Looking for: {abs_path}")
+    print(f"📁 DEBUG: Looking for: {abs_path}")
     print(f"📄 DEBUG: File exists: {os.path.exists(abs_path)}")
     
     if os.path.exists(abs_path):
@@ -1337,10 +1535,8 @@ def download_file(filename):
             print(f"📁 DEBUG: Output folder doesn't exist!")
         return jsonify({'error': 'File not found'}), 404
 
-
-
 if __name__ == '__main__':
-    print("🚀 Starting Subtitle Tools server...")
+    print("🚀 Starting Enhanced Subtitle Tools server...")
     print("📁 Upload folder:", UPLOAD_FOLDER)
     print("📁 Output folder:", OUTPUT_FOLDER)
     
