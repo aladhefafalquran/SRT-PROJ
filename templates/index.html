@@ -12,7 +12,7 @@
         </div>
     {% endif %}
 
-    <form method="post" enctype="multipart/form-data" action="{{ url_for('upload_files') }}">
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('merge.upload_files') }}">
         <div class="form-group">
             <label for="videoFile" id="videoLabel">
                 <i class="fas fa-file-video" aria-hidden="true"></i>
