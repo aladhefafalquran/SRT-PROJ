@@ -168,29 +168,10 @@ function loadVideoFile(file) {
     state.video.duration = v.duration;
     state.video.aspect = v.videoWidth / v.videoHeight;
     $('#totalTime').textContent = fmtTime(v.duration).replace(',', '.');
-    // Size the stage to the video's intrinsic aspect ratio
-    sizeStage();
+    // Video element + stage auto-size via CSS (max-width/max-height + intrinsic ratio)
+    // so the overlay (inset:0 of stage) covers exactly the video frame.
   };
-  v.onresize = sizeStage;
-  window.addEventListener('resize', sizeStage);
   toast('Video loaded: ' + file.name, 'success');
-}
-
-function sizeStage() {
-  if (!state.video || !state.video.aspect) return;
-  const wrap = $('#videoWrap');
-  const stage = $('#videoStage');
-  const wrapRect = wrap.getBoundingClientRect();
-  const aspect = state.video.aspect;
-  // Fit the video inside the wrap while preserving aspect ratio
-  const maxW = wrapRect.width;
-  const maxH = wrapRect.height;
-  let w = maxW, h = maxW / aspect;
-  if (h > maxH) { h = maxH; w = maxH * aspect; }
-  stage.style.width = w + 'px';
-  stage.style.height = h + 'px';
-  $('#video').style.width = w + 'px';
-  $('#video').style.height = h + 'px';
 }
 
 // ============================================================================
@@ -326,8 +307,12 @@ function renderOverlay() {
     cue.style.bottom = 'auto';
     cue.style.transform = 'translate(-50%, -50%)';
   } else {
+    // ASS alignment numeric:
+    //   1=bottom-left  2=bottom-center  3=bottom-right
+    //   4=middle-left  5=middle-center  6=middle-right
+    //   7=top-left     8=top-center     9=top-right
     const a = s.alignment;
-    const vert = a <= 3 ? 'top' : a <= 6 ? 'center' : 'bottom';
+    const vert = a >= 7 ? 'top' : a >= 4 ? 'middle' : 'bottom';
     const horiz = (a === 1 || a === 4 || a === 7) ? 'left' :
                   (a === 3 || a === 6 || a === 9) ? 'right' : 'center';
     cue.style.top = vert === 'top' ? s.marginV + 'px' :
@@ -336,9 +321,9 @@ function renderOverlay() {
     cue.style.left = horiz === 'left' ? s.marginH + 'px' :
                      horiz === 'right' ? `calc(100% - ${s.marginH}px)` : '50%';
     cue.style.right = '';
-    cue.style.transform = horiz === 'center' && vert === 'center' ? 'translate(-50%, -50%)' :
+    cue.style.transform = horiz === 'center' && vert === 'middle' ? 'translate(-50%, -50%)' :
                          horiz === 'center' ? 'translateX(-50%)' :
-                         vert === 'center' ? 'translateY(-50%)' : 'none';
+                         vert === 'middle' ? 'translateY(-50%)' : 'none';
   }
 
   // Style
@@ -376,26 +361,35 @@ function renderOverlay() {
   cue.addEventListener('pointerdown', e => {
     e.preventDefault();
     e.stopPropagation();
-    cue.setPointerCapture(e.pointerId);
-    const rect = stage.getBoundingClientRect();
-    // Current cue center in % of stage
+    try { cue.setPointerCapture(e.pointerId); } catch (_) {}
+    const stageRect = stage.getBoundingClientRect();
     const cueRect = cue.getBoundingClientRect();
-    const centerX = ((cueRect.left + cueRect.width / 2) - rect.left) / rect.width * 100;
-    const centerY = ((cueRect.top + cueRect.height / 2) - rect.top) / rect.height * 100;
-    drag = { startX: e.clientX, startY: e.clientY, centerX, centerY, rect };
+    // Where the cursor is inside the cue (0..1) — used so the cue doesn't jump
+    const grabOffsetX = (e.clientX - cueRect.left) / cueRect.width;
+    const grabOffsetY = (e.clientY - cueRect.top) / cueRect.height;
+    // Current cue center in % of stage
+    const centerX = ((cueRect.left + cueRect.width / 2) - stageRect.left) / stageRect.width * 100;
+    const centerY = ((cueRect.top + cueRect.height / 2) - stageRect.top) / stageRect.height * 100;
+    drag = {
+      startX: e.clientX, startY: e.clientY,
+      centerX, centerY,
+      grabOffsetX, grabOffsetY,
+      stageRect,
+    };
     cue.classList.add('dragging');
   });
 
   cue.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dx = (e.clientX - drag.startX) / drag.rect.width * 100;
-    const dy = (e.clientY - drag.startY) / drag.rect.height * 100;
+    const stageRect = drag.stageRect;
+    const dx = (e.clientX - drag.startX) / stageRect.width * 100;
+    const dy = (e.clientY - drag.startY) / stageRect.height * 100;
     let newX = drag.centerX + dx;
     let newY = drag.centerY + dy;
 
-    // Shift = snap to center (and thirds, edges). Photoshop-style.
+    // Shift = snap to center / thirds / edges (Photoshop-style)
     if (e.shiftKey) {
-      const snap = 8; // snap within 8% of the target line
+      const snap = 6; // 6% snap radius
       const targetsX = [0, 25, 33.33, 50, 66.66, 75, 100];
       const targetsY = [0, 25, 33.33, 50, 66.66, 75, 100];
       let bestX = 50, bestDx = Infinity;
@@ -405,7 +399,6 @@ function renderOverlay() {
       let snapped = false;
       if (bestDx < snap) { newX = bestX; snapped = true; }
       if (bestDy < snap) { newY = bestY; snapped = true; }
-      // Show snap guides
       if (snapped) {
         snapH.style.top = bestY + '%';
         snapH.hidden = false;
@@ -420,7 +413,7 @@ function renderOverlay() {
       snapV.hidden = true;
     }
 
-    // Clamp to keep cue inside stage
+    // Clamp so the cue stays inside the stage
     newX = clamp(newX, 5, 95);
     newY = clamp(newY, 5, 95);
 
@@ -433,13 +426,11 @@ function renderOverlay() {
 
   cue.addEventListener('pointerup', e => {
     if (!drag) return;
-    cue.releasePointerCapture(e.pointerId);
+    try { cue.releasePointerCapture(e.pointerId); } catch (_) {}
     snapH.hidden = true;
     snapV.hidden = true;
     cue.classList.remove('dragging');
-    // Save position override
-    const cueId = activeCue.id;
-    state.cueOverrides[cueId] = {
+    state.cueOverrides[activeCue.id] = {
       x: cue.style.left,
       y: cue.style.top,
     };
