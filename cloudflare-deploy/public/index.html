@@ -6,22 +6,9 @@
   <title>SRT Studio — Subtitle Editor</title>
   <meta name="description" content="Browser-based subtitle editor with live styling, drag-to-position, and on-device video rendering." />
 
-  <!-- Preconnect to font + library origins for faster handshakes -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
-  <link rel="preconnect" href="https://unpkg.com" />
-
-  <!-- Critical fonts: Inter for UI, Noto Sans Arabic for subtitles, JetBrains Mono for timecodes -->
-  <link
-    rel="preload"
-    as="style"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-  />
-  <link
-    rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-  />
+  <!-- Preload critical bundled fonts for instant first paint -->
+  <link rel="preload" href="fonts/inter-400.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="fonts/noto-arabic-400.ttf" as="font" type="font/ttf" crossorigin />
 
   <link rel="stylesheet" href="styles.css" />
 
@@ -192,7 +179,7 @@
       <div class="grid-2">
         <label>Font family
           <select id="fontFamily">
-            <option value="Inter, system-ui, sans-serif">Inter (default)</option>
+            <option value="Inter, sans-serif">Inter (default)</option>
             <option value="'Noto Sans Arabic', sans-serif">Noto Sans Arabic</option>
             <option value="Arial, sans-serif">Arial</option>
             <option value="Verdana, sans-serif">Verdana</option>

@@ -1,4 +1,28 @@
 /* === SRT Studio — clean, fast, mobile-friendly === */
+
+/* --- Self-hosted fonts (bundled, no third-party requests) --- */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700; /* variable */
+  font-display: swap;
+  src: url('fonts/inter-400.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Noto Sans Arabic';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('fonts/noto-arabic-400.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('fonts/jetbrains-mono-400.ttf') format('truetype');
+}
+
 :root {
   --bg: #0f1115;
   --bg-2: #161922;

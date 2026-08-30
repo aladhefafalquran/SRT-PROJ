@@ -297,19 +297,42 @@ function escapeHtml(s) {
 // ============================================================================
 // Live overlay rendering
 // ============================================================================
-function renderOverlay() {
+let lastRenderedCueId = null;
+function renderOverlay(force = false) {
   const overlay = $('#overlay');
-  overlay.innerHTML = '';
-  if (!state.srt) return;
+  if (!state.srt) {
+    overlay.innerHTML = '';
+    lastRenderedCueId = null;
+    return;
+  }
   // Read currentTime from the <video> element, NOT from state.video
   // (state.video doesn't store currentTime — it's a property of the
   // HTMLMediaElement, not our state object). state.currentTime is kept
-  // up to date by the video event handlers + interval loop.
+  // up to date by the video event handlers + rAF loop.
   const t = (state.currentTime != null) ? state.currentTime : (video.currentTime || 0);
-  const s = state.style;
   const activeCue = state.srt.cues.find(c => t >= c.start && t <= c.end + 0.05);
   state.activeCueId = activeCue ? activeCue.id : null;
-  if (!activeCue) return;
+
+  // Optimization: if the active cue hasn't changed and there's still
+  // a cue in the overlay, don't touch it. This prevents the fade-in
+  // animation from re-running on every rAF frame (which makes the cue
+  // appear blank because the animation restarts at opacity:0 each time).
+  // `force=true` bypasses this — used when style controls change.
+  const currentCueNode = overlay.querySelector('.cue');
+  if (!activeCue) {
+    if (currentCueNode) {
+      overlay.innerHTML = '';
+      lastRenderedCueId = null;
+    }
+    return;
+  }
+  if (!force && currentCueNode && currentCueNode.dataset.cueId === activeCue.id && lastRenderedCueId === activeCue.id) {
+    // Same cue is still active — don't re-render
+    return;
+  }
+  // New cue (or first render, or forced re-render) — clear and rebuild
+  overlay.innerHTML = '';
+  lastRenderedCueId = activeCue.id;
   const cue = document.createElement('div');
   cue.className = 'cue';
   cue.dataset.cueId = activeCue.id;
@@ -736,7 +759,7 @@ for (const [id, [key, ev]] of Object.entries(styleMap)) {
     state.style[key] = v;
     const valEl = $('#' + id + 'Val');
     if (valEl) valEl.textContent = v;
-    renderOverlay();
+    renderOverlay(true); // force: style changed, must re-render
   });
 }
 $$('input[name="alignment"]').forEach(r => {
@@ -747,7 +770,7 @@ $$('input[name="alignment"]').forEach(r => {
       // (user can re-drag if they want)
       // (We keep the overrides so the user can still see their custom positions if they want;
       //  uncomment below to reset on alignment change: state.cueOverrides = {};)
-      renderOverlay();
+      renderOverlay(true); // force: alignment changed
     }
   });
 });
