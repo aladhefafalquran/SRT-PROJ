@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SRT Studio — Subtitle Editor</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js" defer></script>
+  <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🎬</span>
+      <h1>SRT Studio</h1>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="editor">Editor</button>
+      <button class="tab" data-tab="style">Style</button>
+      <button class="tab" data-tab="translate">Translate</button>
+      <button class="tab" data-tab="render">Render</button>
+    </nav>
+  </header>
+
+  <main class="layout">
+    <!-- ============ EDITOR PANE ============ -->
+    <section class="pane video-pane" data-pane="editor">
+      <div class="video-wrap" id="videoWrap">
+        <video id="video" controls playsinline crossorigin="anonymous"></video>
+        <div class="subtitle-overlay" id="overlay"></div>
+        <div class="dropzone" id="dropzone">
+          <div class="dz-inner">
+            <div class="dz-icon">📁</div>
+            <p class="dz-title">Drop a video here</p>
+            <p class="dz-sub">or <label for="videoInput" class="link">browse</label></p>
+            <p class="dz-meta">MP4, MOV, WebM, MKV — processed locally in your browser</p>
+            <input type="file" id="videoInput" accept="video/*" hidden />
+          </div>
+        </div>
+        <div class="now-editing" id="nowEditing" hidden>
+          <span class="dot"></span> editing <span id="nowEditingText"></span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="btn ghost" id="prevCue" title="Previous cue (Shift+Tab)">⏮</button>
+        <button class="btn ghost" id="playPause" title="Play/Pause (Space)">▶</button>
+        <button class="btn ghost" id="nextCue" title="Next cue (Tab)">⏭</button>
+        <div class="time"><span id="curTime">00:00.000</span> / <span id="totalTime">00:00.000</span></div>
+        <div class="grow"></div>
+        <button class="btn ghost" id="shiftLeft" title="Shift all cues -0.5s">⏪ -0.5s</button>
+        <button class="btn ghost" id="shiftRight" title="Shift all cues +0.5s">+0.5s ⏩</button>
+        <button class="btn ghost" id="setStart" title="Set start to current time">⤓ start</button>
+        <button class="btn ghost" id="setEnd" title="Set end to current time">⤓ end</button>
+      </div>
+    </section>
+
+    <!-- ============ SIDE PANE ============ -->
+    <aside class="pane side-pane">
+      <div class="srt-header">
+        <h2>Subtitles</h2>
+        <div class="srt-actions">
+          <label class="btn small" for="srtInput" title="Load .srt file">📂 Open</label>
+          <input type="file" id="srtInput" accept=".srt,text/plain" hidden />
+          <button class="btn small" id="newCue" title="New cue (Ctrl+Enter)">+ Cue</button>
+          <button class="btn small" id="pasteSrt" title="Paste SRT text">📋 Paste</button>
+          <button class="btn small" id="exportSrt" title="Download .srt">💾 Save</button>
+        </div>
+        <div class="search-row">
+          <input type="search" id="searchBox" placeholder="Find…" />
+          <button class="btn small ghost" id="findReplace" title="Find & replace">⇄</button>
+        </div>
+      </div>
+      <div class="cue-list" id="cueList"></div>
+      <div class="srt-footer">
+        <span id="cueCount">0 cues</span>
+        <span class="dot-sep">·</span>
+        <span id="saveStatus" class="muted">unsaved</span>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ============ STYLE PANE ============ -->
+  <section class="panel" data-panel="style" hidden>
+    <div class="panel-inner">
+      <h2>Subtitle Style</h2>
+      <p class="panel-sub">All changes apply to the live preview and the final render.</p>
+
+      <div class="grid-2">
+        <label>Font family
+          <select id="fontFamily">
+            <option>Arial</option>
+            <option>Verdana</option>
+            <option>Helvetica</option>
+            <option>Times New Roman</option>
+            <option>Courier New</option>
+            <option>Georgia</option>
+            <option>Trebuchet MS</option>
+            <option>Impact</option>
+          </select>
+        </label>
+        <label>Font size <span class="val" id="fontSizeVal">20</span>
+          <input type="range" id="fontSize" min="10" max="48" value="20" />
+        </label>
+        <label>Weight
+          <select id="fontWeight">
+            <option>normal</option>
+            <option value="bold" selected>bold</option>
+          </select>
+        </label>
+        <label>Style
+          <select id="fontStyle">
+            <option value="normal">regular</option>
+            <option value="italic">italic</option>
+          </select>
+        </label>
+        <label>Text color
+          <input type="color" id="primaryColor" value="#ffffff" />
+        </label>
+        <label>Outline color
+          <input type="color" id="outlineColor" value="#000000" />
+        </label>
+        <label>Outline thickness <span class="val" id="outlineVal">2</span>
+          <input type="range" id="outlineWidth" min="0" max="6" value="2" />
+        </label>
+        <label>Background
+          <input type="color" id="backColor" value="#000000" />
+        </label>
+        <label>Background opacity <span class="val" id="backOpacityVal">50</span>%
+          <input type="range" id="backOpacity" min="0" max="100" value="50" />
+        </label>
+        <label>Shadow
+          <input type="checkbox" id="shadow" />
+        </label>
+      </div>
+
+      <h3>Position</h3>
+      <div class="pos-grid">
+        <label class="pos-cell"><input type="radio" name="alignment" value="1" /><span>⬆ top</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="2" checked /><span>⬇ bottom</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="3" /><span>⏶ top-left</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="4" /><span>⏷ bottom-left</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="5" /><span>↗ top-right</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="6" /><span>↘ bottom-right</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="7" /><span>⏺ top-center</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="8" /><span>⏺ bottom-center</span></label>
+        <label class="pos-cell"><input type="radio" name="alignment" value="9" /><span>● middle</span></label>
+      </div>
+      <div class="grid-2">
+        <label>Vertical margin <span class="val" id="marginVVal">40</span>
+          <input type="range" id="marginV" min="0" max="200" value="40" />
+        </label>
+        <label>Horizontal margin <span class="val" id="marginHVal">40</span>
+          <input type="range" id="marginH" min="0" max="200" value="40" />
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRANSLATE PANE ============ -->
+  <section class="panel" data-panel="translate" hidden>
+    <div class="panel-inner">
+      <h2>Translate Subtitles</h2>
+      <p class="panel-sub">Powered by MyMemory — free, no key, called directly from your browser. ~5000 chars/day anonymous.</p>
+      <div class="grid-2">
+        <label>From
+          <select id="srcLang">
+            <option value="auto">Auto-detect</option>
+            <option value="en">English</option>
+            <option value="ar">Arabic</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="tr">Turkish</option>
+            <option value="ur">Urdu</option>
+            <option value="id">Indonesian</option>
+            <option value="ru">Russian</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+          </select>
+        </label>
+        <label>To
+          <select id="tgtLang">
+            <option value="ar">Arabic (with RTL)</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="tr">Turkish</option>
+            <option value="ur">Urdu</option>
+            <option value="id">Indonesian</option>
+            <option value="ru">Russian</option>
+            <option value="zh">Chinese</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="runTranslate">🌐 Translate</button>
+        <button class="btn ghost" id="cancelTranslate" hidden>Cancel</button>
+        <span class="muted" id="translateStatus"></span>
+      </div>
+      <p class="muted small">Translated text replaces the current subtitle text. Originals are kept in undo history (Ctrl+Z).</p>
+    </div>
+  </section>
+
+  <!-- ============ RENDER PANE ============ -->
+  <section class="panel" data-panel="render" hidden>
+    <div class="panel-inner">
+      <h2>Render Final Video</h2>
+      <p class="panel-sub">Burns your styled subtitles into the video. Runs entirely in your browser via FFmpeg.wasm. May take 1–5 min depending on video length.</p>
+      <div class="grid-2">
+        <label>Output format
+          <select id="renderFormat">
+            <option value="mp4">MP4 (H.264 + AAC)</option>
+            <option value="webm">WebM (VP9 + Opus)</option>
+          </select>
+        </label>
+        <label>Quality
+          <select id="renderQuality">
+            <option value="high">High (slower)</option>
+            <option value="medium" selected>Balanced</option>
+            <option value="fast">Fast (larger file)</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn primary big" id="runRender">🎬 Render video</button>
+        <button class="btn ghost" id="cancelRender" hidden>Cancel</button>
+        <a class="btn success big" id="downloadRendered" hidden download="rendered.mp4">⬇ Download</a>
+      </div>
+      <div class="progress-wrap" id="renderProgress" hidden>
+        <div class="progress-bar"><div class="progress-fill" id="renderFill"></div></div>
+        <div class="progress-text" id="renderText">Preparing…</div>
+      </div>
+      <p class="muted small">Rendered file is generated in your browser's memory. Nothing is uploaded.</p>
+    </div>
+  </section>
+
+  <!-- ============ MODAL: Find & Replace ============ -->
+  <div class="modal" id="frModal" hidden>
+    <div class="modal-card">
+      <h3>Find & Replace</h3>
+      <label>Find <input type="text" id="frFind" /></label>
+      <label>Replace with <input type="text" id="frReplace" /></label>
+      <div class="actions">
+        <button class="btn ghost" id="frCancel">Cancel</button>
+        <button class="btn primary" id="frApply">Replace all</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODAL: Paste SRT ============ -->
+  <div class="modal" id="pasteModal" hidden>
+    <div class="modal-card">
+      <h3>Paste SRT text</h3>
+      <textarea id="pasteArea" rows="14" placeholder="1&#10;00:00:01,000 --> 00:00:04,000&#10;Your subtitle text here&#10;&#10;2&#10;00:00:05,000 --> 00:00:08,000&#10;Next cue"></textarea>
+      <div class="actions">
+        <button class="btn ghost" id="pasteCancel">Cancel</button>
+        <button class="btn primary" id="pasteApply">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
