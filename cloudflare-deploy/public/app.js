@@ -300,8 +300,12 @@ function escapeHtml(s) {
 function renderOverlay() {
   const overlay = $('#overlay');
   overlay.innerHTML = '';
-  if (!state.srt || !state.video) return;
-  const t = state.video.currentTime || 0;
+  if (!state.srt) return;
+  // Read currentTime from the <video> element, NOT from state.video
+  // (state.video doesn't store currentTime — it's a property of the
+  // HTMLMediaElement, not our state object). state.currentTime is kept
+  // up to date by the video event handlers + interval loop.
+  const t = (state.currentTime != null) ? state.currentTime : (video.currentTime || 0);
   const s = state.style;
   const activeCue = state.srt.cues.find(c => t >= c.start && t <= c.end + 0.05);
   state.activeCueId = activeCue ? activeCue.id : null;
