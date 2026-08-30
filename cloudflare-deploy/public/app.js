@@ -168,10 +168,30 @@ function loadVideoFile(file) {
     state.video.duration = v.duration;
     state.video.aspect = v.videoWidth / v.videoHeight;
     $('#totalTime').textContent = fmtTime(v.duration).replace(',', '.');
-    // Video element + stage auto-size via CSS (max-width/max-height + intrinsic ratio)
-    // so the overlay (inset:0 of stage) covers exactly the video frame.
+    alignOverlayToVideo();
   };
+  // Re-align on window resize
+  window.addEventListener('resize', alignOverlayToVideo);
   toast('Video loaded: ' + file.name, 'success');
+}
+
+// Make the subtitle overlay cover EXACTLY the video's rendered area,
+// not the entire .video-stage (which includes letterbox bars).
+// This is the only reliable way to keep subtitles inside the actual
+// video frame, regardless of aspect ratio.
+function alignOverlayToVideo() {
+  const v = $('#video');
+  const overlay = $('#overlay');
+  const stage = $('#videoStage');
+  if (!v || !overlay || !stage) return;
+  const videoRect = v.getBoundingClientRect();
+  const stageRect = stage.getBoundingClientRect();
+  if (videoRect.width === 0 || videoRect.height === 0) return;
+  // Position the overlay to match the video's rendered area within the stage
+  overlay.style.left = (videoRect.left - stageRect.left) + 'px';
+  overlay.style.top = (videoRect.top - stageRect.top) + 'px';
+  overlay.style.width = videoRect.width + 'px';
+  overlay.style.height = videoRect.height + 'px';
 }
 
 // ============================================================================
@@ -287,6 +307,8 @@ function renderOverlay() {
   const overlay = $('#overlay');
   overlay.innerHTML = '';
   if (!state.srt || !state.video) return;
+  // Always re-align the overlay to the video's actual rendered rect
+  alignOverlayToVideo();
   const t = state.video.currentTime || 0;
   const s = state.style;
   const activeCue = state.srt.cues.find(c => t >= c.start && t <= c.end + 0.05);
@@ -353,7 +375,9 @@ function renderOverlay() {
   }
 
   // ===== Drag-to-reposition with Shift-snap (Photoshop-style) =====
-  const stage = $('#videoStage');
+  // The overlay is sized to match the video's actual rendered rect
+  // (via alignOverlayToVideo), so drag math uses the overlay rect.
+  const overlay = $('#overlay');
   const snapH = $('#snapH');
   const snapV = $('#snapV');
   let drag = null;
@@ -362,28 +386,24 @@ function renderOverlay() {
     e.preventDefault();
     e.stopPropagation();
     try { cue.setPointerCapture(e.pointerId); } catch (_) {}
-    const stageRect = stage.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
     const cueRect = cue.getBoundingClientRect();
-    // Where the cursor is inside the cue (0..1) — used so the cue doesn't jump
-    const grabOffsetX = (e.clientX - cueRect.left) / cueRect.width;
-    const grabOffsetY = (e.clientY - cueRect.top) / cueRect.height;
-    // Current cue center in % of stage
-    const centerX = ((cueRect.left + cueRect.width / 2) - stageRect.left) / stageRect.width * 100;
-    const centerY = ((cueRect.top + cueRect.height / 2) - stageRect.top) / stageRect.height * 100;
+    // Current cue center in % of overlay (= video frame)
+    const centerX = ((cueRect.left + cueRect.width / 2) - overlayRect.left) / overlayRect.width * 100;
+    const centerY = ((cueRect.top + cueRect.height / 2) - overlayRect.top) / overlayRect.height * 100;
     drag = {
       startX: e.clientX, startY: e.clientY,
       centerX, centerY,
-      grabOffsetX, grabOffsetY,
-      stageRect,
+      overlayRect,
     };
     cue.classList.add('dragging');
   });
 
   cue.addEventListener('pointermove', e => {
     if (!drag) return;
-    const stageRect = drag.stageRect;
-    const dx = (e.clientX - drag.startX) / stageRect.width * 100;
-    const dy = (e.clientY - drag.startY) / stageRect.height * 100;
+    const rect = drag.overlayRect;
+    const dx = (e.clientX - drag.startX) / rect.width * 100;
+    const dy = (e.clientY - drag.startY) / rect.height * 100;
     let newX = drag.centerX + dx;
     let newY = drag.centerY + dy;
 
