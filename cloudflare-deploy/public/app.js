@@ -314,9 +314,9 @@ function renderOverlay(force = false) {
   state.activeCueId = activeCue ? activeCue.id : null;
 
   // Optimization: if the active cue hasn't changed and there's still
-  // a cue in the overlay, don't touch it. This prevents the fade-in
-  // animation from re-running on every rAF frame (which makes the cue
-  // appear blank because the animation restarts at opacity:0 each time).
+  // a cue in the overlay, don't touch it. This prevents the DOM from
+  // being rebuilt on every rAF frame (which would waste work and
+  // interrupt CSS transitions).
   // `force=true` bypasses this — used when style controls change.
   const currentCueNode = overlay.querySelector('.cue');
   if (!activeCue) {
