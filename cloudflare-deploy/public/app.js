@@ -485,13 +485,23 @@ function hexToRgb(hex) {
 // Video event handlers
 // ============================================================================
 const video = $('#video');
-video.addEventListener('timeupdate', () => {
-  state.currentTime = video.currentTime;
-  $('#curTime').textContent = fmtTime(video.currentTime).replace(',', '.');
-  renderOverlay();
-});
-video.addEventListener('play', () => { $('#playPause').textContent = '⏸'; });
-video.addEventListener('pause', () => { $('#playPause').textContent = '▶'; });
+let lastRenderedTime = -1;
+function maybeRender() {
+  if (state.video && Math.abs(video.currentTime - lastRenderedTime) > 0.01) {
+    lastRenderedTime = video.currentTime;
+    state.currentTime = video.currentTime;
+    $('#curTime').textContent = fmtTime(video.currentTime).replace(',', '.');
+    renderOverlay();
+  }
+}
+video.addEventListener('timeupdate', maybeRender);
+video.addEventListener('seeked', maybeRender);
+video.addEventListener('loadeddata', maybeRender);
+video.addEventListener('play', () => { $('#playPause').textContent = '⏸'; maybeRender(); });
+video.addEventListener('pause', () => { $('#playPause').textContent = '▶'; maybeRender(); });
+// Fallback render loop: some browsers don't fire timeupdate reliably
+// when the video is paused or after seek, so we re-check at 10Hz.
+setInterval(maybeRender, 100);
 $('#playPause').addEventListener('click', () => {
   if (video.paused) video.play(); else video.pause();
 });
