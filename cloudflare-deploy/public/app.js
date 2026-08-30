@@ -166,33 +166,27 @@ function loadVideoFile(file) {
   $('#dropzone').classList.add('hidden');
   v.onloadedmetadata = () => {
     state.video.duration = v.duration;
-    state.video.aspect = v.videoWidth / v.videoHeight;
+    const aspect = v.videoWidth / v.videoHeight;
+    state.video.aspect = aspect;
     $('#totalTime').textContent = fmtTime(v.duration).replace(',', '.');
-    alignOverlayToVideo();
+    // Set the stage's aspect-ratio to match the video. The stage
+    // will then size itself to the largest box with that ratio that
+    // fits in the wrap. The video element fills the stage (100% ×
+    // 100%) and the overlay (inset:0 of stage) covers exactly the
+    // video frame — no letterbox mismatch.
+    const stage = $('#videoStage');
+    stage.style.aspectRatio = aspect.toString();
+    // Reset any prior pixel sizing
+    stage.style.width = '';
+    stage.style.height = '';
+    stage.style.left = '';
+    stage.style.top = '';
   };
-  // Re-align on window resize
-  window.addEventListener('resize', alignOverlayToVideo);
   toast('Video loaded: ' + file.name, 'success');
 }
 
-// Make the subtitle overlay cover EXACTLY the video's rendered area,
-// not the entire .video-stage (which includes letterbox bars).
-// This is the only reliable way to keep subtitles inside the actual
-// video frame, regardless of aspect ratio.
-function alignOverlayToVideo() {
-  const v = $('#video');
-  const overlay = $('#overlay');
-  const stage = $('#videoStage');
-  if (!v || !overlay || !stage) return;
-  const videoRect = v.getBoundingClientRect();
-  const stageRect = stage.getBoundingClientRect();
-  if (videoRect.width === 0 || videoRect.height === 0) return;
-  // Position the overlay to match the video's rendered area within the stage
-  overlay.style.left = (videoRect.left - stageRect.left) + 'px';
-  overlay.style.top = (videoRect.top - stageRect.top) + 'px';
-  overlay.style.width = videoRect.width + 'px';
-  overlay.style.height = videoRect.height + 'px';
-}
+// Kept as a no-op for backward compatibility with renderOverlay's call
+function alignOverlayToVideo() { /* no-op: stage is sized via aspect-ratio CSS */ }
 
 // ============================================================================
 // SRT loading
@@ -307,8 +301,6 @@ function renderOverlay() {
   const overlay = $('#overlay');
   overlay.innerHTML = '';
   if (!state.srt || !state.video) return;
-  // Always re-align the overlay to the video's actual rendered rect
-  alignOverlayToVideo();
   const t = state.video.currentTime || 0;
   const s = state.style;
   const activeCue = state.srt.cues.find(c => t >= c.start && t <= c.end + 0.05);

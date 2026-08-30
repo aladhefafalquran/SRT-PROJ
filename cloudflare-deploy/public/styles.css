@@ -113,38 +113,39 @@ body {
   overflow: hidden;
   padding: 0;
 }
-/* Stage = the frame the video renders inside. Fills the wrap.
-   The video element inside uses max-width/max-height to preserve
-   aspect ratio while fitting. The overlay (inset:0 of stage) thus
-   covers exactly the video frame, not the wrap's letterbox. */
+/* Stage = a sized box that exactly fits the video frame.
+   JS sets the aspect-ratio from the loaded video's intrinsic size,
+   and the stage then takes all available space while keeping that
+   ratio. The video element fills the stage; the overlay (inset:0
+   of stage) covers exactly the video frame. */
 .video-stage {
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* Take all available space — the video inside will shrink to fit. */
+  background: #000;
+  /* aspect-ratio is set by JS once the video loads; default 16:9 */
+  aspect-ratio: 16 / 9;
+  /* Take all available space while keeping aspect ratio */
   width: 100%;
-  height: 100%;
   max-width: 100%;
   max-height: 100%;
-  background: #000;
+  /* If max-height kicks in, shrink width to match aspect */
+  height: auto;
+  /* object-fit: contain isn't needed since stage is sized to the video */
+}
+@media (min-aspect-ratio: 16/9) {
+  /* wrap is wider than video — fit to height */
+  .video-stage { width: auto; height: 100%; }
 }
 #video {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   background: #000;
-  /* object-fit keeps aspect ratio even when the video element's
-     intrinsic size doesn't match the rendered size */
   object-fit: contain;
 }
 .subtitle-overlay {
   position: absolute;
   pointer-events: none;
-  left: 0;
-  top: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
