@@ -28,6 +28,8 @@ const state = {
     marginV: 40,
     marginH: 40,
   },
+  // Per-cue position override (for drag-to-reposition). null = use style alignment.
+  cueOverrides: {}, // { cueId: { x: '50%', y: '50%' } }
   history: [],
   historyIndex: -1,
   rendering: false,
@@ -108,7 +110,10 @@ function generateSRT(cues) {
 // History (undo/redo)
 // ============================================================================
 function pushHistory() {
-  const snap = JSON.parse(JSON.stringify({ cues: state.srt ? state.srt.cues : [] }));
+  const snap = JSON.parse(JSON.stringify({
+    cues: state.srt ? state.srt.cues : [],
+    overrides: state.cueOverrides,
+  }));
   // truncate forward history
   state.history = state.history.slice(0, state.historyIndex + 1);
   state.history.push(snap);
@@ -129,7 +134,9 @@ function redo() {
 function restoreHistory() {
   if (!state.srt) return;
   const snap = state.history[state.historyIndex];
-  state.srt.cues = JSON.parse(JSON.stringify(snap.cues));
+  if (!snap) return;
+  state.srt.cues = JSON.parse(JSON.stringify(snap.cues || []));
+  state.cueOverrides = JSON.parse(JSON.stringify(snap.overrides || {}));
   renderCueList();
   renderOverlay();
   updateSaveStatus();
@@ -159,9 +166,31 @@ function loadVideoFile(file) {
   $('#dropzone').classList.add('hidden');
   v.onloadedmetadata = () => {
     state.video.duration = v.duration;
+    state.video.aspect = v.videoWidth / v.videoHeight;
     $('#totalTime').textContent = fmtTime(v.duration).replace(',', '.');
+    // Size the stage to the video's intrinsic aspect ratio
+    sizeStage();
   };
+  v.onresize = sizeStage;
+  window.addEventListener('resize', sizeStage);
   toast('Video loaded: ' + file.name, 'success');
+}
+
+function sizeStage() {
+  if (!state.video || !state.video.aspect) return;
+  const wrap = $('#videoWrap');
+  const stage = $('#videoStage');
+  const wrapRect = wrap.getBoundingClientRect();
+  const aspect = state.video.aspect;
+  // Fit the video inside the wrap while preserving aspect ratio
+  const maxW = wrapRect.width;
+  const maxH = wrapRect.height;
+  let w = maxW, h = maxW / aspect;
+  if (h > maxH) { h = maxH; w = maxH * aspect; }
+  stage.style.width = w + 'px';
+  stage.style.height = h + 'px';
+  $('#video').style.width = w + 'px';
+  $('#video').style.height = h + 'px';
 }
 
 // ============================================================================
@@ -174,6 +203,7 @@ function loadSRTFromText(text, fileName = 'pasted.srt') {
     return;
   }
   state.srt = { cues, fileName };
+  state.cueOverrides = {}; // reset positions for a new SRT
   state.history = [];
   state.historyIndex = -1;
   pushHistory();
@@ -283,39 +313,45 @@ function renderOverlay() {
   if (!activeCue) return;
   const cue = document.createElement('div');
   cue.className = 'cue';
+  cue.dataset.cueId = activeCue.id;
   cue.textContent = activeCue.text;
-  // position via ASS alignment
-  // alignment: 1..3 top, 4..6 mid, 7..9 bottom
-  // 1,4,7 = left   2,5,8 = center   3,6,9 = right
-  // vertical thirds:
-  //   1,2,3   = top
-  //   4,5,6   = middle
-  //   7,8,9   = bottom
-  const a = s.alignment;
-  const vert = a <= 3 ? 'top' : a <= 6 ? 'center' : 'bottom';
-  const horiz = (a === 1 || a === 4 || a === 7) ? 'left' :
-                (a === 3 || a === 6 || a === 9) ? 'right' : 'center';
-  cue.style.top = vert === 'top' ? s.marginV + 'px' :
-                  vert === 'bottom' ? `calc(100% - ${s.marginV}px)` : '50%';
-  cue.style.bottom = '';
-  cue.style.left = horiz === 'left' ? s.marginH + 'px' :
-                   horiz === 'right' ? `calc(100% - ${s.marginH}px)` : '50%';
-  cue.style.right = '';
-  cue.style.transform = horiz === 'center' && vert === 'center' ? 'translate(-50%, -50%)' :
-                       horiz === 'center' ? 'translateX(-50%)' :
-                       vert === 'center' ? 'translateY(-50%)' : 'none';
+
+  // Position: per-cue override takes priority, else style alignment
+  const override = state.cueOverrides[activeCue.id];
+  if (override) {
+    // Free-form position from drag (in % of stage)
+    cue.style.left = override.x;
+    cue.style.top = override.y;
+    cue.style.right = 'auto';
+    cue.style.bottom = 'auto';
+    cue.style.transform = 'translate(-50%, -50%)';
+  } else {
+    const a = s.alignment;
+    const vert = a <= 3 ? 'top' : a <= 6 ? 'center' : 'bottom';
+    const horiz = (a === 1 || a === 4 || a === 7) ? 'left' :
+                  (a === 3 || a === 6 || a === 9) ? 'right' : 'center';
+    cue.style.top = vert === 'top' ? s.marginV + 'px' :
+                    vert === 'bottom' ? `calc(100% - ${s.marginV}px)` : '50%';
+    cue.style.bottom = '';
+    cue.style.left = horiz === 'left' ? s.marginH + 'px' :
+                     horiz === 'right' ? `calc(100% - ${s.marginH}px)` : '50%';
+    cue.style.right = '';
+    cue.style.transform = horiz === 'center' && vert === 'center' ? 'translate(-50%, -50%)' :
+                         horiz === 'center' ? 'translateX(-50%)' :
+                         vert === 'center' ? 'translateY(-50%)' : 'none';
+  }
+
+  // Style
   cue.style.fontFamily = s.fontFamily;
   cue.style.fontSize = s.fontSize + 'px';
   cue.style.fontWeight = s.fontWeight;
   cue.style.fontStyle = s.fontStyle;
   cue.style.color = s.primaryColor;
   cue.style.lineHeight = '1.3';
-  // background with opacity
   const bg = hexToRgb(s.backColor);
   cue.style.backgroundColor = `rgba(${bg.r},${bg.g},${bg.b},${s.backOpacity / 100})`;
-  cue.style.padding = '4px 8px';
+  cue.style.padding = '4px 10px';
   cue.style.borderRadius = '3px';
-  // text shadow as outline
   const oc = hexToRgb(s.outlineColor);
   if (s.shadow) {
     cue.style.textShadow = `${s.outlineWidth}px ${s.outlineWidth}px 0 rgba(${oc.r},${oc.g},${oc.b},0.9),
@@ -330,30 +366,102 @@ function renderOverlay() {
                             ${ow}px -${ow}px 0 rgba(${oc.r},${oc.g},${oc.b},0.9),
                             -${ow}px -${ow}px 0 rgba(${oc.r},${oc.g},${oc.b},0.9)`;
   }
-  // drag-to-reposition
+
+  // ===== Drag-to-reposition with Shift-snap (Photoshop-style) =====
+  const stage = $('#videoStage');
+  const snapH = $('#snapH');
+  const snapV = $('#snapV');
   let drag = null;
+
   cue.addEventListener('pointerdown', e => {
     e.preventDefault();
+    e.stopPropagation();
     cue.setPointerCapture(e.pointerId);
-    const rect = overlay.getBoundingClientRect();
-    drag = { x: e.clientX, y: e.clientY, left: cue.offsetLeft, top: cue.offsetTop, rect };
+    const rect = stage.getBoundingClientRect();
+    // Current cue center in % of stage
+    const cueRect = cue.getBoundingClientRect();
+    const centerX = ((cueRect.left + cueRect.width / 2) - rect.left) / rect.width * 100;
+    const centerY = ((cueRect.top + cueRect.height / 2) - rect.top) / rect.height * 100;
+    drag = { startX: e.clientX, startY: e.clientY, centerX, centerY, rect };
     cue.classList.add('dragging');
   });
+
   cue.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dx = (e.clientX - drag.x) / drag.rect.width * 100;
-    const dy = (e.clientY - drag.y) / drag.rect.height * 100;
-    cue.style.left = `calc(${drag.left / drag.rect.width * 100}% + ${dx}%)`;
-    cue.style.top = `calc(${drag.top / drag.rect.height * 100}% + ${dy}%)`;
-    cue.style.transform = 'none';
+    const dx = (e.clientX - drag.startX) / drag.rect.width * 100;
+    const dy = (e.clientY - drag.startY) / drag.rect.height * 100;
+    let newX = drag.centerX + dx;
+    let newY = drag.centerY + dy;
+
+    // Shift = snap to center (and thirds, edges). Photoshop-style.
+    if (e.shiftKey) {
+      const snap = 8; // snap within 8% of the target line
+      const targetsX = [0, 25, 33.33, 50, 66.66, 75, 100];
+      const targetsY = [0, 25, 33.33, 50, 66.66, 75, 100];
+      let bestX = 50, bestDx = Infinity;
+      let bestY = 50, bestDy = Infinity;
+      for (const t of targetsX) { const d = Math.abs(newX - t); if (d < bestDx) { bestDx = d; bestX = t; } }
+      for (const t of targetsY) { const d = Math.abs(newY - t); if (d < bestDy) { bestDy = d; bestY = t; } }
+      let snapped = false;
+      if (bestDx < snap) { newX = bestX; snapped = true; }
+      if (bestDy < snap) { newY = bestY; snapped = true; }
+      // Show snap guides
+      if (snapped) {
+        snapH.style.top = bestY + '%';
+        snapH.hidden = false;
+        snapV.style.left = bestX + '%';
+        snapV.hidden = false;
+      } else {
+        snapH.hidden = true;
+        snapV.hidden = true;
+      }
+    } else {
+      snapH.hidden = true;
+      snapV.hidden = true;
+    }
+
+    // Clamp to keep cue inside stage
+    newX = clamp(newX, 5, 95);
+    newY = clamp(newY, 5, 95);
+
+    cue.style.left = newX + '%';
+    cue.style.top = newY + '%';
     cue.style.right = 'auto';
     cue.style.bottom = 'auto';
+    cue.style.transform = 'translate(-50%, -50%)';
   });
+
   cue.addEventListener('pointerup', e => {
     if (!drag) return;
     cue.releasePointerCapture(e.pointerId);
-    drag = null;
+    snapH.hidden = true;
+    snapV.hidden = true;
     cue.classList.remove('dragging');
+    // Save position override
+    const cueId = activeCue.id;
+    state.cueOverrides[cueId] = {
+      x: cue.style.left,
+      y: cue.style.top,
+    };
+    pushHistory();
+    drag = null;
+  });
+
+  cue.addEventListener('pointercancel', () => {
+    if (!drag) return;
+    snapH.hidden = true;
+    snapV.hidden = true;
+    cue.classList.remove('dragging');
+    drag = null;
+  });
+
+  // Double-click resets to the style alignment
+  cue.addEventListener('dblclick', e => {
+    e.preventDefault();
+    delete state.cueOverrides[activeCue.id];
+    pushHistory();
+    renderOverlay();
+    toast('Position reset to style alignment');
   });
 
   overlay.appendChild(cue);
@@ -544,7 +652,14 @@ for (const [id, [key, ev]] of Object.entries(styleMap)) {
 }
 $$('input[name="alignment"]').forEach(r => {
   r.addEventListener('change', e => {
-    if (e.target.checked) { state.style.alignment = +e.target.value; renderOverlay(); }
+    if (e.target.checked) {
+      state.style.alignment = +e.target.value;
+      // Changing alignment clears per-cue overrides so the new alignment applies
+      // (user can re-drag if they want)
+      // (We keep the overrides so the user can still see their custom positions if they want;
+      //  uncomment below to reset on alignment change: state.cueOverrides = {};)
+      renderOverlay();
+    }
   });
 });
 
