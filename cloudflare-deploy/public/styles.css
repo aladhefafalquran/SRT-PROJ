@@ -468,3 +468,53 @@ body {
   .panel { width: 100vw; }
   .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* === Download panel additions === */
+.block-label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.block-label input {
+  width: 100%;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  margin-top: 4px;
+}
+.block-label input:focus { outline: none; border-color: var(--accent); }
+.cobalt-toggle {
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.cobalt-toggle label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.cobalt-faq {
+  margin-top: 16px;
+  padding: 10px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cobalt-faq summary { cursor: pointer; font-weight: 600; color: var(--text); }
+.cobalt-faq p { margin: 8px 0 0; }
+.cobalt-faq code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+.link-inline { color: var(--accent); text-decoration: underline; }
+.link-inline:hover { opacity: 0.8; }

@@ -18,6 +18,7 @@
     </div>
     <nav class="tabs">
       <button class="tab active" data-tab="editor">Editor</button>
+      <button class="tab" data-tab="download">Download</button>
       <button class="tab" data-tab="style">Style</button>
       <button class="tab" data-tab="translate">Translate</button>
       <button class="tab" data-tab="render">Render</button>
@@ -81,6 +82,74 @@
       </div>
     </aside>
   </main>
+
+  <!-- ============ DOWNLOAD PANE ============ -->
+  <section class="panel" data-panel="download" hidden>
+    <div class="panel-inner">
+      <h2>Download from URL</h2>
+      <p class="panel-sub">Paste a link from YouTube, Instagram, TikTok, X/Twitter, Reddit, Vimeo, Pinterest, SoundCloud and more. Powered by <a href="https://cobalt.tools" target="_blank" rel="noopener" class="link-inline">cobalt.tools</a> — a free, open-source service. Nothing is stored on their servers.</p>
+
+      <label class="block-label">Video URL
+        <input type="url" id="dlUrl" placeholder="https://www.youtube.com/watch?v=..." />
+      </label>
+
+      <div class="grid-2">
+        <label>Type
+          <select id="dlType">
+            <option value="auto">Auto-detect</option>
+            <option value="video">Video (muted if no audio)</option>
+            <option value="audio">Audio only (m4a / mp3)</option>
+          </select>
+        </label>
+        <label>Quality
+          <select id="dlQuality">
+            <option value="1080">1080p</option>
+            <option value="720" selected>720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+            <option value="144">144p</option>
+            <option value="max">Max available</option>
+          </select>
+        </label>
+        <label>Container
+          <select id="dlContainer">
+            <option value="auto">Auto</option>
+            <option value="mp4">MP4</option>
+            <option value="webm">WebM</option>
+          </select>
+        </label>
+        <label>Filename pattern
+          <select id="dlPattern">
+            <option value="classic">Classic (title-id)</option>
+            <option value="pretty">Pretty (title only)</option>
+            <option value="basic">Basic (id)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="cobalt-toggle">
+        <label>
+          <input type="checkbox" id="dlSaveToBrowser" />
+          Load into editor after download (vs. just save to disk)
+        </label>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary big" id="runDownload">⬇ Download</button>
+        <button class="btn ghost" id="cancelDownload" hidden>Cancel</button>
+      </div>
+
+      <div class="progress-wrap" id="dlProgress" hidden>
+        <div class="progress-bar"><div class="progress-fill" id="dlFill"></div></div>
+        <div class="progress-text" id="dlText">Starting…</div>
+      </div>
+
+      <details class="cobalt-faq">
+        <summary>Why a third-party service?</summary>
+        <p>Your browser can't fetch videos directly from YouTube/Instagram/TikTok — those sites block non-browser requests. <a href="https://cobalt.tools" target="_blank" rel="noopener" class="link-inline">cobalt</a> is a free, open-source project that does the download and hands you a stream URL. The video is downloaded <strong>directly to your browser</strong>, not stored on cobalt's servers. If their API is down, you can also just use <code>yt-dlp</code> on your own machine and drag the result into the editor.</p>
+      </details>
+    </div>
+  </section>
 
   <!-- ============ STYLE PANE ============ -->
   <section class="panel" data-panel="style" hidden>

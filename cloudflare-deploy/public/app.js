@@ -762,3 +762,151 @@ if (location.hash) {
   const params = new URLSearchParams(location.hash.slice(1));
   if (params.get('cue')) state.selectedCueId = params.get('cue');
 }
+
+// ============================================================================
+// Download from URL (cobalt.tools API)
+// ============================================================================
+// Cobalt is a free, open-source download service. We call its public API
+// (no key required) which returns either a stream URL or a tunnel we can
+// pull the bytes from. The video bytes are downloaded directly to your
+// browser — they are NOT stored on cobalt's servers.
+//
+// If cobalt is down, unreachable, or has changed their API, the user gets
+// a clear error and is told to use yt-dlp on their own machine.
+const COBALT_INSTANCES = [
+  'https://api.cobalt.tools/',  // official
+];
+
+async function cobaltResolveStream(url, type, quality, container) {
+  // Map our UI choices to cobalt's API params
+  const body = { url };
+  if (type === 'audio') {
+    body.downloadMode = 'audio';
+    body.audioFormat = container === 'webm' ? 'webm' : 'mp3';
+    body.audioBitrate = '128';
+  } else {
+    body.downloadMode = 'auto';
+    if (quality && quality !== 'max') body.videoQuality = quality;
+    if (container && container !== 'auto') body.container = container;
+  }
+  body.filenameStyle = 'classic';
+  body.tiktokFullAudio = false;
+  body.youtubeDubLang = null;
+
+  const r = await fetch('https://api.cobalt.tools/api/json', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`Cobalt API error (HTTP ${r.status}): ${text.slice(0, 200)}`);
+  }
+  const j = await r.json();
+  if (j.status === 'error') throw new Error(j.error?.code || 'Cobalt error');
+  if (j.status === 'redirect' || j.status === 'tunnel') {
+    return { streamUrl: j.url, filename: j.filename || 'download' };
+  }
+  if (j.status === 'picker') {
+    // Multiple items (e.g. carousel) — pick first
+    if (j.picker && j.picker.length) {
+      return { streamUrl: j.picker[0].url, filename: j.picker[0].filename || 'download' };
+    }
+    throw new Error('Cobalt returned multiple items; please refine the URL');
+  }
+  throw new Error('Unexpected cobalt response: ' + JSON.stringify(j).slice(0, 200));
+}
+
+async function downloadWithProgress(streamUrl, onProgress) {
+  const r = await fetch(streamUrl);
+  if (!r.ok) throw new Error(`Stream fetch failed: HTTP ${r.status}`);
+  const total = +r.headers.get('content-length') || 0;
+  const reader = r.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total) onProgress(received / total);
+  }
+  const blob = new Blob(chunks);
+  return blob;
+}
+
+$('#runDownload').addEventListener('click', async () => {
+  const url = $('#dlUrl').value.trim();
+  if (!url) { toast('Paste a URL first', 'error'); return; }
+  if (!/^https?:\/\//.test(url)) { toast('Must start with http:// or https://', 'error'); return; }
+  const type = $('#dlType').value;
+  const quality = $('#dlQuality').value;
+  const container = $('#dlContainer').value;
+  const loadToEditor = $('#dlSaveToBrowser').checked;
+
+  $('#cancelDownload').hidden = false;
+  $('#runDownload').disabled = true;
+  const wrap = $('#dlProgress');
+  const fill = $('#dlFill');
+  const text = $('#dlText');
+  wrap.hidden = false;
+  fill.style.width = '0%';
+
+  let cancelled = false;
+  $('#cancelDownload').onclick = () => { cancelled = true; };
+
+  try {
+    text.textContent = 'Asking cobalt to resolve the URL…';
+    fill.style.width = '5%';
+    const { streamUrl, filename } = await cobaltResolveStream(url, type, quality, container);
+    if (cancelled) return;
+    text.textContent = 'Downloading…';
+    const blob = await downloadWithProgress(streamUrl, p => {
+      fill.style.width = (5 + p * 90) + '%';
+      text.textContent = `Downloading… ${(p * 100).toFixed(0)}%`;
+    });
+    if (cancelled) return;
+    fill.style.width = '100%';
+    text.textContent = `Done! ${(blob.size / 1024 / 1024).toFixed(1)} MB`;
+
+    if (loadToEditor) {
+      // Build a File and load into the video player
+      const ext = (filename.split('.').pop() || 'mp4').toLowerCase();
+      const mime = ext === 'webm' ? 'video/webm'
+                : ext === 'mkv' ? 'video/x-matroska'
+                : ext === 'mp3' ? 'audio/mpeg'
+                : ext === 'm4a' ? 'audio/mp4'
+                : 'video/mp4';
+      const f = new File([blob], filename, { type: mime });
+      loadVideoFile(f);
+      // Auto-switch to Editor tab so the user sees the loaded video
+      const ed = document.querySelector('.tab[data-tab="editor"]');
+      if (ed) ed.click();
+      toast('Loaded into editor', 'success');
+    } else {
+      // Save to disk
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('Downloaded to your device', 'success');
+    }
+  } catch (e) {
+    console.error(e);
+    fill.style.width = '0%';
+    text.textContent = '';
+    toast('Download failed: ' + e.message, 'error');
+    if (/Cobalt|fetch|API/i.test(e.message)) {
+      // Most likely cause: cobalt down or unreachable
+      toast('Cobalt might be down — try yt-dlp on your own machine and drag the result here', 'error');
+    }
+  } finally {
+    $('#runDownload').disabled = false;
+    $('#cancelDownload').hidden = true;
+    setTimeout(() => { wrap.hidden = true; }, 3000);
+  }
+});
