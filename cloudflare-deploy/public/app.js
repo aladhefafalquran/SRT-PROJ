@@ -376,8 +376,8 @@ function renderOverlay() {
 
   // ===== Drag-to-reposition with Shift-snap (Photoshop-style) =====
   // The overlay is sized to match the video's actual rendered rect
-  // (via alignOverlayToVideo), so drag math uses the overlay rect.
-  const overlay = $('#overlay');
+  // (via alignOverlayToVideo), so drag math uses the overlay rect
+  // (which is already captured in `overlay` at the top of this function).
   const snapH = $('#snapH');
   const snapV = $('#snapV');
   let drag = null;
