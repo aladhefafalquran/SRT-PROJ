@@ -4,9 +4,28 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SRT Studio — Subtitle Editor</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="description" content="Browser-based subtitle editor with live styling, drag-to-position, and on-device video rendering." />
+
+  <!-- Preconnect to font + library origins for faster handshakes -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="preconnect" href="https://unpkg.com" />
+
+  <!-- Critical fonts: Inter for UI, Noto Sans Arabic for subtitles, JetBrains Mono for timecodes -->
+  <link
+    rel="preload"
+    as="style"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+  />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+  />
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- FFmpeg.wasm (deferred; needed for render only) -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js" defer></script>
   <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js" defer></script>
 </head>
@@ -60,6 +79,14 @@
         <button class="btn ghost" id="shiftRight" title="Shift all cues +0.5s">+0.5s ⏩</button>
         <button class="btn ghost" id="setStart" title="Set start to current time">⤓ start</button>
         <button class="btn ghost" id="setEnd" title="Set end to current time">⤓ end</button>
+        <button class="btn ghost icon-only" id="showShortcuts" title="Keyboard shortcuts (?)">?</button>
+      </div>
+
+      <!-- Visual timeline showing cue positions; click to seek -->
+      <div class="timeline" id="timeline" title="Click to seek, click on a cue to jump to it">
+        <div class="timeline-track" id="timelineTrack">
+          <div class="timeline-playhead" id="timelinePlayhead"></div>
+        </div>
       </div>
     </section>
 
@@ -165,15 +192,21 @@
       <div class="grid-2">
         <label>Font family
           <select id="fontFamily">
-            <option>Arial</option>
-            <option>Verdana</option>
-            <option>Helvetica</option>
-            <option>Times New Roman</option>
-            <option>Courier New</option>
-            <option>Georgia</option>
-            <option>Trebuchet MS</option>
-            <option>Impact</option>
+            <option value="Inter, system-ui, sans-serif">Inter (default)</option>
+            <option value="'Noto Sans Arabic', sans-serif">Noto Sans Arabic</option>
+            <option value="Arial, sans-serif">Arial</option>
+            <option value="Verdana, sans-serif">Verdana</option>
+            <option value="Helvetica, sans-serif">Helvetica</option>
+            <option value="'Times New Roman', serif">Times New Roman</option>
+            <option value="'Courier New', monospace">Courier New</option>
+            <option value="Georgia, serif">Georgia</option>
+            <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+            <option value="Impact, sans-serif">Impact</option>
+            <option value="custom">Custom (upload below)…</option>
           </select>
+        </label>
+        <label id="customFontLabel" hidden>Custom font (.ttf/.otf/.woff2)
+          <input type="file" id="customFont" accept=".ttf,.otf,.woff,.woff2" />
         </label>
         <label>Font size <span class="val" id="fontSizeVal">20</span>
           <input type="range" id="fontSize" min="10" max="48" value="20" />
@@ -339,6 +372,29 @@
   </div>
 
   <div class="toast" id="toast" hidden></div>
+
+  <!-- Keyboard shortcuts modal (press ? to open) -->
+  <div class="modal" id="shortcutsModal" hidden>
+    <div class="modal-card shortcuts-card">
+      <h3>Keyboard shortcuts</h3>
+      <div class="shortcuts-grid">
+        <div class="shortcut"><kbd>Space</kbd><span>Play / pause</span></div>
+        <div class="shortcut"><kbd>Tab</kbd><span>Next cue</span></div>
+        <div class="shortcut"><kbd>Shift</kbd>+<kbd>Tab</kbd><span>Previous cue</span></div>
+        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Enter</kbd><span>Add new cue</span></div>
+        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>S</kbd><span>Save SRT</span></div>
+        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Z</kbd><span>Undo</span></div>
+        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd><span>Redo</span></div>
+        <div class="shortcut"><kbd>Shift</kbd>+drag<span>Snap to center / thirds</span></div>
+        <div class="shortcut"><kbd>2×click</kbd> cue<span>Reset to style alignment</span></div>
+        <div class="shortcut"><kbd>?</kbd><span>This help</span></div>
+        <div class="shortcut"><kbd>Esc</kbd><span>Close any dialog</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="closeShortcuts">Got it</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js" type="module"></script>
 </body>

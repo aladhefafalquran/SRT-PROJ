@@ -486,6 +486,67 @@ function hexToRgb(hex) {
 }
 
 // ============================================================================
+// Visual timeline (cue positions + playhead)
+// ============================================================================
+function renderTimeline() {
+  const track = $('#timelineTrack');
+  if (!track) return;
+  const playhead = $('#timelinePlayhead');
+  // Re-render cues only when the cue list changes (cheap optimization):
+  // we re-render if the rendered count differs or the active state changed.
+  const wantCues = state.srt ? state.srt.cues : [];
+  const haveNodes = track.querySelectorAll('.timeline-cue').length;
+  if (haveNodes !== wantCues.length) {
+    // Re-build cue nodes
+    track.querySelectorAll('.timeline-cue').forEach(n => n.remove());
+    const dur = state.video ? state.video.duration : 0;
+    if (dur > 0) {
+      for (const c of wantCues) {
+        const node = document.createElement('div');
+        node.className = 'timeline-cue';
+        node.dataset.cueId = c.id;
+        const left = (c.start / dur) * 100;
+        const width = Math.max(0.3, ((c.end - c.start) / dur) * 100);
+        node.style.left = left + '%';
+        node.style.width = width + '%';
+        node.title = (c.text || '').replace(/\n/g, ' / ');
+        node.addEventListener('click', e => {
+          e.stopPropagation();
+          video.currentTime = c.start;
+          state.selectedCueId = c.id;
+        });
+        track.appendChild(node);
+      }
+    }
+  }
+  // Update playhead position (cheap)
+  if (state.video && state.video.duration > 0) {
+    const pct = (video.currentTime / state.video.duration) * 100;
+    playhead.style.left = pct + '%';
+  }
+  // Highlight active cue
+  const activeId = state.activeCueId;
+  track.querySelectorAll('.timeline-cue').forEach(n => {
+    if (n.dataset.cueId === activeId) n.classList.add('active');
+    else n.classList.remove('active');
+  });
+}
+
+// Click on the timeline track background = seek to that time
+function bindTimeline() {
+  const tl = $('#timeline');
+  const track = $('#timelineTrack');
+  if (!tl || !track) return;
+  tl.addEventListener('click', e => {
+    if (e.target.classList.contains('timeline-cue')) return;
+    if (!state.video || !state.video.duration) return;
+    const rect = track.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    video.currentTime = clamp(pct * state.video.duration, 0, state.video.duration);
+  });
+}
+
+// ============================================================================
 // Video event handlers
 // ============================================================================
 const video = $('#video');
@@ -496,6 +557,7 @@ function maybeRender() {
     state.currentTime = video.currentTime;
     $('#curTime').textContent = fmtTime(video.currentTime).replace(',', '.');
     renderOverlay();
+    renderTimeline();
   }
 }
 video.addEventListener('timeupdate', maybeRender);
@@ -503,9 +565,19 @@ video.addEventListener('seeked', maybeRender);
 video.addEventListener('loadeddata', maybeRender);
 video.addEventListener('play', () => { $('#playPause').textContent = '⏸'; maybeRender(); });
 video.addEventListener('pause', () => { $('#playPause').textContent = '▶'; maybeRender(); });
-// Fallback render loop: some browsers don't fire timeupdate reliably
-// when the video is paused or after seek, so we re-check at 10Hz.
-setInterval(maybeRender, 100);
+// Fallback render loop using requestAnimationFrame for smooth updates
+// synced with the display refresh. Stops when the page is hidden.
+let rafRunning = true;
+function rafLoop() {
+  if (!rafRunning) return;
+  maybeRender();
+  requestAnimationFrame(rafLoop);
+}
+requestAnimationFrame(rafLoop);
+document.addEventListener('visibilitychange', () => {
+  rafRunning = !document.hidden;
+  if (rafRunning) requestAnimationFrame(rafLoop);
+});
 $('#playPause').addEventListener('click', () => {
   if (video.paused) video.play(); else video.pause();
 });
@@ -877,6 +949,20 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); $('#newCue').click(); return; }
     if (e.key === 's') { e.preventDefault(); $('#exportSrt').click(); return; }
   }
+  // Esc closes any open modal
+  if (e.key === 'Escape') {
+    ['pasteModal', 'frModal', 'shortcutsModal'].forEach(id => {
+      const m = document.getElementById(id);
+      if (m && !m.hidden) m.hidden = true;
+    });
+    return;
+  }
+  // ? opens shortcuts (only when not in a text field)
+  if (!inField && e.key === '?') {
+    e.preventDefault();
+    $('#shortcutsModal').hidden = false;
+    return;
+  }
   if (inField) return;
   if (e.key === ' ') { e.preventDefault(); $('#playPause').click(); return; }
   if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); $('#nextCue').click(); return; }
@@ -888,12 +974,81 @@ document.addEventListener('keydown', e => {
 // ============================================================================
 renderCueList();
 updateSaveStatus();
+bindTimeline();
 
 // auto-load from URL hash if present
 if (location.hash) {
   const params = new URLSearchParams(location.hash.slice(1));
   if (params.get('cue')) state.selectedCueId = params.get('cue');
 }
+
+// ============================================================================
+// Custom font upload
+// ============================================================================
+let customFontFamily = null;
+$('#customFont').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!/\.(ttf|otf|woff2?|TTF|OTF|WOFF2?)$/.test(file.name)) {
+    toast('Please drop a .ttf, .otf, or .woff/.woff2 file', 'error');
+    return;
+  }
+  if (customFontFamily) URL.revokeObjectURL(customFontFamily);
+  const url = URL.createObjectURL(file);
+  // We can't use the @font-face @font-family trick with an arbitrary
+  // name cleanly, so we inject a stylesheet that defines a unique-named
+  // font for this file. We pick a stable name and store it.
+  const fontName = 'SRTStudioCustom';
+  customFontFamily = fontName;
+  const style = document.createElement('style');
+  style.textContent = `
+    @font-face {
+      font-family: '${fontName}';
+      src: url('${url}') format('${file.name.toLowerCase().endsWith('woff2') ? 'woff2' :
+        file.name.toLowerCase().endsWith('woff') ? 'woff' :
+        file.name.toLowerCase().endsWith('otf') ? 'opentype' : 'truetype'}');
+      font-display: block;
+    }
+  `;
+  // Remove previous injection for this font
+  document.querySelectorAll('style[data-customfont]').forEach(n => n.remove());
+  style.dataset.customfont = '1';
+  document.head.appendChild(style);
+  // Switch the dropdown to "Custom" and apply
+  const sel = $('#fontFamily');
+  if (sel) {
+    sel.value = 'custom';
+    state.style.fontFamily = `'${fontName}', sans-serif`;
+    renderOverlay();
+    toast('Custom font loaded: ' + file.name, 'success');
+  }
+});
+$('#fontFamily').addEventListener('change', e => {
+  const v = e.target.value;
+  const label = $('#customFontLabel');
+  if (v === 'custom') {
+    label.hidden = false;
+    if (customFontFamily) {
+      state.style.fontFamily = `'${customFontFamily}', sans-serif`;
+    } else {
+      toast('Upload a font file below', '');
+      state.style.fontFamily = 'Inter, sans-serif';
+    }
+  } else {
+    label.hidden = true;
+    state.style.fontFamily = v;
+  }
+  renderOverlay();
+});
+
+// ============================================================================
+// Keyboard shortcuts modal
+// ============================================================================
+$('#showShortcuts').addEventListener('click', () => { $('#shortcutsModal').hidden = false; });
+$('#closeShortcuts').addEventListener('click', () => { $('#shortcutsModal').hidden = true; });
+$('#shortcutsModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.hidden = true;
+});
 
 // ============================================================================
 // Download from URL (cobalt.tools API)
